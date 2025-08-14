@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google OAuth 认证管理</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus {
+            border-color: #4285f4;
+            outline: none;
+        }
+        .btn {
+            background-color: #4285f4;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background-color: #3367d6;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .auth-url {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            word-break: break-all;
+        }
+        .auth-url a {
+            color: #4285f4;
+            text-decoration: none;
+        }
+        .auth-url a:hover {
+            text-decoration: underline;
+        }
+        .credentials {
+            background-color: #f0f8ff;
+            border: 1px solid #b0d4ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .hidden {
+            display: none;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .login-form {
+            text-align: center;
+            padding: 50px 0;
+        }
+        .login-form input[type="password"] {
+            width: 300px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: #f5f5f5;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            background: white;
+            border-bottom-color: #4285f4;
+            color: #4285f4;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            padding: 40px;
+            text-align: center;
+            background-color: #fafafa;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #4285f4;
+        }
+        .upload-area.dragover {
+            border-color: #4285f4;
+            background-color: #f0f8ff;
+        }
+        .file-list {
+            margin: 20px 0;
+        }
+        .file-item {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 3px;
+            padding: 10px;
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-item .file-name {
+            font-family: monospace;
+            color: #333;
+        }
+        .file-item .file-size {
+            color: #666;
+            font-size: 12px;
+        }
+        .file-item .remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .upload-progress {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 登录界面 -->
+        <div id="loginSection" class="login-form">
+            <h1>Google OAuth 认证管理</h1>
+            <p>请输入访问密码：</p>
+            <input type="password" id="password" placeholder="输入密码" onkeypress="handlePasswordEnter(event)" />
+            <br>
+            <button class="btn" onclick="login()">登录</button>
+        </div>
+
+        <!-- 主界面 -->
+        <div id="mainSection" class="hidden">
+            <h1>Google OAuth 认证管理</h1>
+            
+            <!-- 标签页 -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
+                <button class="tab" onclick="switchTab('upload')">批量上传</button>
+            </div>
+
+            <!-- OAuth认证标签页 -->
+            <div id="oauthTab" class="tab-content active">
+                <!-- API 启用提醒 -->
+                <div class="status info" style="margin-bottom: 20px;">
+                    <strong>⚠️ 重要：在开始认证前，请先为您的项目启用以下API服务：</strong>
+                    <ol style="margin: 10px 0; padding-left: 20px;">
+                        <li>
+                            <strong>Gemini Cloud Assist API</strong>
+                            <br>
+                            <a href="https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fconsole.cloud.google.com%2Fapis%2Fapi%2Fgeminicloudassist.googleapis.com&followup=https%3A%2F%2Fconsole.cloud.google.com%2Fapis%2Fapi%2Fgeminicloudassist.googleapis.com&ifkv=AdBytiMNy-Hm3hnPgFWYjLYkPGdKcOlVpAqeSe13FPLF0otQksaGiPmr6UFIWIXMbPEmaVQ8VjphHQ&osid=1&passive=1209600&service=cloudconsole&flowName=GlifWebSignIn&flowEntry=ServiceLogin&dsh=S-1507562391%3A1750869291503463" target="_blank" style="color: #4285f4; text-decoration: none;">点击这里启用 Gemini Cloud Assist API</a>
+                        </li>
+                        <li>
+                            <strong>Cloud AI Companion API</strong>
+                            <br>
+                            <a href="https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fconsole.cloud.google.com%2Fapis%2Fapi%2Fcloudaicompanion.googleapis.com&followup=https%3A%2F%2Fconsole.cloud.google.com%2Fapis%2Fapi%2Fcloudaicompanion.googleapis.com&ifkv=AdBytiOqBpXdvQKqAFVlUqM4caKHny2P-Fdd3Wog-Zra1x-Ok_KLiV5XTW7cshP_HJvfXAiP3amyog&osid=1&passive=1209600&service=cloudconsole&flowName=GlifWebSignIn&flowEntry=ServiceLogin&dsh=S892092256%3A1750869338491514" target="_blank" style="color: #4285f4; text-decoration: none;">点击这里启用 Cloud AI Companion API</a>
+                        </li>
+                    </ol>
+                    <p style="margin: 10px 0; color: #d73502;"><strong>注意：</strong>如果未启用这些API，OAuth认证过程将会失败。请确保在输入Project ID前已经完成API启用操作。</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="projectId">Google Cloud Project ID:</label>
+                    <input type="text" id="projectId" placeholder="输入你的 Google Cloud Project ID" />
+                </div>
+                
+                <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
+                
+                <div id="authUrlSection" class="hidden">
+                    <h3>认证链接：</h3>
+                    <div class="auth-url">
+                        <a id="authUrl" href="#" target="_blank">点击此链接进行认证</a>
+                    </div>
+                    <div class="status info">
+                        <strong>重要说明：</strong>
+                        <ol style="margin: 10px 0; padding-left: 20px;">
+                            <li>点击上方认证链接，会在新窗口中打开Google OAuth页面</li>
+                            <li>完成Google账号登录和授权</li>
+                            <li>授权成功后会跳转到localhost:8080显示成功页面</li>
+                            <li>关闭OAuth窗口，返回本页面</li>
+                            <li>点击下方"获取认证文件"按钮完成流程</li>
+                        </ol>
+                    </div>
+                    <button class="btn" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
+                </div>
+                
+                <div id="credentialsSection" class="hidden">
+                    <h3>认证文件内容：</h3>
+                    <div class="credentials" id="credentialsContent"></div>
+                </div>
+            </div>
+
+            <!-- 批量上传标签页 -->
+            <div id="uploadTab" class="tab-content">
+                <h3>批量上传认证文件</h3>
+                <p>支持上传多个JSON格式的认证文件到服务器</p>
+                
+                <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                    <p>点击选择文件或拖拽文件到此区域</p>
+                    <p style="color: #666; font-size: 14px;">支持 .json 格式文件</p>
+                </div>
+                
+                <input type="file" id="fileInput" multiple accept=".json" style="display: none;" onchange="handleFileSelect(event)" />
+                
+                <div id="fileListSection" class="hidden">
+                    <h4>选择的文件：</h4>
+                    <div class="file-list" id="fileList"></div>
+                    <button class="btn" onclick="uploadFiles()">上传文件</button>
+                    <button class="btn" style="background-color: #6c757d;" onclick="clearFiles()">清空列表</button>
+                </div>
+                
+                <div id="uploadProgressSection" class="hidden">
+                    <div class="upload-progress">
+                        <h4>上传进度：</h4>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                        </div>
+                        <p id="progressText">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="statusSection"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentProjectId = '';
+        let authInProgress = false;
+        let selectedFiles = [];
+        let authToken = '';
+
+        function showStatus(message, type = 'info') {
+            const statusSection = document.getElementById('statusSection');
+            statusSection.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        // 登录相关函数
+        async function login() {
+            const password = document.getElementById('password').value;
+            if (!password) {
+                showStatus('请输入密码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: password })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    authToken = data.token;
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('mainSection').classList.remove('hidden');
+                    showStatus('登录成功', 'success');
+                } else {
+                    showStatus(`登录失败: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        function handlePasswordEnter(event) {
+            if (event.key === 'Enter') {
+                login();
+            }
+        }
+
+        // 标签页切换
+        function switchTab(tabName) {
+            // 移除所有活动标签
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // 激活选中标签
+            event.target.classList.add('active');
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        }
+
+        // 获取认证头
+        function getAuthHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            };
+        }
+
+        async function startAuth() {
+            const projectId = document.getElementById('projectId').value.trim();
+            if (!projectId) {
+                showStatus('请输入 Project ID', 'error');
+                return;
+            }
+
+            currentProjectId = projectId;
+            const btn = document.getElementById('getAuthBtn');
+            btn.disabled = true;
+            btn.textContent = '正在获取认证链接...';
+
+            try {
+                const response = await fetch('/auth/start', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ project_id: projectId })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('authUrl').href = data.auth_url;
+                    document.getElementById('authUrl').textContent = data.auth_url;
+                    document.getElementById('authUrlSection').classList.remove('hidden');
+                    showStatus('请点击认证链接完成授权', 'info');
+                    authInProgress = true;
+                } else {
+                    showStatus(`错误: ${data.error || '获取认证链接失败'}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '获取认证链接';
+            }
+        }
+
+        async function getCredentials() {
+            if (!authInProgress) {
+                showStatus('请先获取认证链接并完成授权', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('getCredsBtn');
+            btn.disabled = true;
+            btn.textContent = '等待OAuth回调中...';
+
+            try {
+                showStatus('正在等待OAuth回调，这可能需要一些时间...', 'info');
+                
+                const response = await fetch('/auth/callback', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ project_id: currentProjectId })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('credentialsContent').textContent = JSON.stringify(data.credentials, null, 2);
+                    document.getElementById('credentialsSection').classList.remove('hidden');
+                    showStatus(`✅ 认证成功！文件已保存到: ${data.file_path}`, 'success');
+                    authInProgress = false;
+                } else {
+                    showStatus(`❌ 错误: ${data.error || '获取认证文件失败'}`, 'error');
+                    if (data.error && data.error.includes('未接收到授权回调')) {
+                        showStatus('提示：请确保已完成浏览器中的OAuth认证，并看到了"OAuth authentication successful"页面', 'info');
+                    }
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '获取认证文件';
+            }
+        }
+
+        // 文件上传相关函数
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            addFiles(files);
+        }
+
+        function addFiles(files) {
+            files.forEach(file => {
+                if (file.type === 'application/json' || file.name.endsWith('.json')) {
+                    if (!selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                        selectedFiles.push(file);
+                    }
+                } else {
+                    showStatus(`文件 ${file.name} 不是有效的JSON文件`, 'error');
+                }
+            });
+            
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileList = document.getElementById('fileList');
+            const fileListSection = document.getElementById('fileListSection');
+            
+            if (selectedFiles.length === 0) {
+                fileListSection.classList.add('hidden');
+                return;
+            }
+            
+            fileListSection.classList.remove('hidden');
+            fileList.innerHTML = '';
+            
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div>
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">(${formatFileSize(file.size)})</span>
+                    </div>
+                    <button class="remove-btn" onclick="removeFile(${index})">删除</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            updateFileList();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+            return Math.round(bytes / (1024 * 1024)) + ' MB';
+        }
+
+        async function uploadFiles() {
+            if (selectedFiles.length === 0) {
+                showStatus('请选择要上传的文件', 'error');
+                return;
+            }
+
+            const progressSection = document.getElementById('uploadProgressSection');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            progressSection.classList.remove('hidden');
+            
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            try {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.onprogress = function(event) {
+                    if (event.lengthComputable) {
+                        const percentComplete = (event.loaded / event.total) * 100;
+                        progressFill.style.width = percentComplete + '%';
+                        progressText.textContent = Math.round(percentComplete) + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        const data = JSON.parse(xhr.responseText);
+                        showStatus(`成功上传 ${data.uploaded_count} 个文件`, 'success');
+                        clearFiles();
+                        progressSection.classList.add('hidden');
+                    } else {
+                        const error = JSON.parse(xhr.responseText);
+                        showStatus(`上传失败: ${error.error}`, 'error');
+                    }
+                };
+
+                xhr.onerror = function() {
+                    showStatus('上传失败：网络错误', 'error');
+                };
+
+                xhr.open('POST', '/auth/upload');
+                xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                xhr.send(formData);
+
+            } catch (error) {
+                showStatus(`上传失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 拖拽功能
+        const uploadArea = document.getElementById('uploadArea');
+        
+        uploadArea.addEventListener('dragover', function(event) {
+            event.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', function(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', function(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(event.dataTransfer.files);
+            addFiles(files);
+        });
+
+        // 页面加载时检查状态
+        window.onload = function() {
+            showStatus('请输入密码登录', 'info');
+        };
+    </script>
+</body>
+</html>
