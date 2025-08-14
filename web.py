@@ -137,10 +137,9 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request_data: ChatCompletionRequest,
-    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
-    token = authenticate(request, credentials)
+    token = authenticate(credentials)
     
     # 健康检查
     if (len(request_data.messages) == 1 and 

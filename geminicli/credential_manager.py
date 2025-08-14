@@ -18,7 +18,6 @@ from .config import CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT
 from .utils import get_user_agent, get_client_metadata
 from log import log
 
-
 class CredentialManager:
     """High-performance credential manager with call-based rotation and caching."""
 
@@ -164,13 +163,6 @@ class CredentialManager:
                 log.info(f"Rotating credentials after {self._call_count} calls")
             else:
                 log.info("Cache miss - loading fresh credentials")
-            
-            # 确保文件列表是最新的
-            await self._discover_credential_files()
-            
-            if not self._credential_files:
-                log.error("No credential files available")
-                return None, None
             
             # Rotate to next credential if we've reached the call limit
             await self._rotate_credential_if_needed()
@@ -357,16 +349,6 @@ class CredentialManager:
                 raise Exception(f"User onboarding failed. Please check your Google Cloud project permissions and try again. Error: {error_text}")
             except Exception as e:
                 raise Exception(f"User onboarding failed due to an unexpected error: {str(e)}")
-
-    async def refresh_credential_files(self):
-        """手动刷新凭证文件列表（热加载）"""
-        async with self._lock:
-            log.info("手动刷新凭证文件列表")
-            await self._discover_credential_files()
-            # 清除缓存强制重新加载
-            self._cached_credentials = None
-            self._cached_project_id = None
-            self._call_count = 0
 
     async def get_credentials_and_project(self) -> Tuple[Optional[Credentials], Optional[str]]:
         """Get both credentials and project ID in one optimized call."""

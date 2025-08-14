@@ -10,6 +10,8 @@ from .models import OpenAIChatCompletionRequest
 from .config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
+    get_thinking_budget,
+    should_include_thoughts
 )
 
 def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dict[str, Any]:
@@ -99,6 +101,14 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         "safetySettings": DEFAULT_SAFETY_SETTINGS,
         "model": get_base_model_name(openai_request.model)  # Use base model name for API call
     }
+    
+    # Add thinking configuration for thinking models
+    thinking_budget = get_thinking_budget(openai_request.model)
+    if thinking_budget is not None:
+        request_payload["generationConfig"]["thinkingConfig"] = {
+            "thinkingBudget": thinking_budget,
+            "includeThoughts": should_include_thoughts(openai_request.model)
+        }
     
     return request_payload
 
