@@ -2,17 +2,26 @@
 Web路由模块 - 处理认证相关的HTTP请求和控制面板功能
 用于与上级web.py集成
 """
-import os
-from log import log
-import json
 import asyncio
+import datetime
+import glob
+import io
+import json
+import os
+import time
+from collections import deque
 from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, WebSocket, WebSocketDisconnect, Request
-from starlette.websockets import WebSocketState
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from starlette.websockets import WebSocketState
+import toml
+import zipfile
 
+import config
+from log import log
 from .auth_api import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
@@ -20,8 +29,7 @@ from .auth_api import (
     load_credentials_from_env, clear_env_credentials
 )
 from .credential_manager import CredentialManager
-from .usage_stats import get_usage_stats, get_aggregated_stats
-import config
+from .usage_stats import get_usage_stats, get_aggregated_stats, get_usage_stats_instance
 
 # 创建路由器
 router = APIRouter()
@@ -31,8 +39,6 @@ security = HTTPBearer()
 credential_manager = CredentialManager()
 
 # WebSocket连接管理
-import weakref
-from collections import deque
 
 class ConnectionManager:
     def __init__(self, max_connections: int = 5):  # 降低最大连接数
@@ -85,7 +91,6 @@ class ConnectionManager:
                 
     def _auto_cleanup(self):
         """自动清理死连接"""
-        import time
         current_time = time.time()
         if current_time - self._last_cleanup > self._cleanup_interval:
             self.cleanup_dead_connections()
@@ -699,7 +704,6 @@ async def refresh_all_user_emails(token: str = Depends(verify_token)):
         
         # 获取所有凭证文件
         from config import CREDENTIALS_DIR
-        import glob
         
         json_files = glob.glob(os.path.join(CREDENTIALS_DIR, "*.json"))
         
@@ -746,8 +750,6 @@ async def refresh_all_user_emails(token: str = Depends(verify_token)):
 async def download_all_creds(token: str = Depends(verify_token)):
     """打包下载所有凭证文件"""
     try:
-        import zipfile
-        import io
         from config import CREDENTIALS_DIR
         
         # 创建内存中的ZIP文件
@@ -762,8 +764,6 @@ async def download_all_creds(token: str = Depends(verify_token)):
                         zip_file.write(filepath, filename)
         
         zip_buffer.seek(0)
-        
-        from fastapi.responses import Response
         return Response(
             content=zip_buffer.getvalue(),
             media_type="application/zip",
@@ -782,8 +782,6 @@ async def get_config(token: str = Depends(verify_token)):
         await ensure_credential_manager_initialized()
         
         # 导入配置相关模块
-        import config
-        import toml
         
         # 读取当前配置（包括环境变量和TOML文件中的配置）
         current_config = {}
@@ -892,10 +890,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
     """保存配置到TOML文件"""
     try:
         await ensure_credential_manager_initialized()
-        
-        import config
-        import toml
-        
         new_config = request.config
         
         log.info(f"收到的配置数据: {list(new_config.keys())}")
@@ -1233,7 +1227,6 @@ async def get_env_creds_status(token: str = Depends(verify_token)):
 async def clear_logs(token: str = Depends(verify_token)):
     """清空日志文件"""
     try:
-        import config
         log_file_path = config.get_log_file()
         
         # 检查日志文件是否存在
@@ -1263,7 +1256,6 @@ async def clear_logs(token: str = Depends(verify_token)):
 async def download_logs(token: str = Depends(verify_token)):
     """下载日志文件"""
     try:
-        import config
         log_file_path = config.get_log_file()
         
         # 检查日志文件是否存在
@@ -1276,7 +1268,6 @@ async def download_logs(token: str = Depends(verify_token)):
             raise HTTPException(status_code=404, detail="日志文件为空")
         
         # 生成文件名（包含时间戳）
-        import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"gcli2api_logs_{timestamp}.txt"
         
@@ -1304,7 +1295,6 @@ async def websocket_logs(websocket: WebSocket):
     
     try:
         # 从配置获取日志文件路径
-        import config
         log_file_path = config.get_log_file()
         
         # 发送初始日志（限制为最后50行，减少内存占用）
@@ -1446,7 +1436,6 @@ async def update_usage_limits(request: UsageLimitsUpdateRequest, token: str = De
         Success message
     """
     try:
-        from .usage_stats import get_usage_stats_instance
         stats_instance = await get_usage_stats_instance()
         
         await stats_instance.update_daily_limits(
@@ -1481,7 +1470,6 @@ async def reset_usage_statistics(request: UsageResetRequest, token: str = Depend
         Success message
     """
     try:
-        from .usage_stats import get_usage_stats_instance
         stats_instance = await get_usage_stats_instance()
         
         await stats_instance.reset_stats(filename=request.filename)

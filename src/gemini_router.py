@@ -2,22 +2,22 @@
 Gemini Router - Handles native Gemini format API requests
 处理原生Gemini格式请求的路由模块
 """
+import asyncio
 import json
 from contextlib import asynccontextmanager
-
-from fastapi import APIRouter, HTTPException, Depends, Request, Path, Query, status, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 
-from .google_api_client import send_gemini_request, build_gemini_payload_from_native
-from .credential_manager import CredentialManager
-from config import get_config_value, get_available_models, is_fake_streaming_model, is_anti_truncation_model, get_base_model_from_feature_model, get_anti_truncation_max_attempts
-from .anti_truncation import apply_anti_truncation_to_stream
-from config import get_base_model_name
-from log import log
-from .memory_manager import check_memory_limit, get_memory_usage
+from fastapi import APIRouter, HTTPException, Depends, Request, Path, Query, status, Header
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+from config import get_config_value, get_available_models, is_fake_streaming_model, is_anti_truncation_model, get_base_model_from_feature_model, get_anti_truncation_max_attempts, get_base_model_name
+from log import log
+from .anti_truncation import apply_anti_truncation_to_stream
+from .credential_manager import CredentialManager
+from .google_api_client import send_gemini_request, build_gemini_payload_from_native
+from .memory_manager import check_memory_limit, get_memory_usage
+from .openai_transfer import _extract_content_and_reasoning
 # 创建路由器
 router = APIRouter()
 security = HTTPBearer()
@@ -352,7 +352,6 @@ async def get_model_info(
 
 async def fake_stream_response_gemini(request_data: dict, model: str):
     """处理Gemini格式的假流式响应"""
-    import asyncio
     
     async def gemini_stream_generator():
         try:
@@ -437,7 +436,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                     
                     # 发送完整内容作为单个chunk，使用思维链分离
                     if "candidates" in response_data and response_data["candidates"]:
-                        from .openai_transfer import _extract_content_and_reasoning
                         candidate = response_data["candidates"][0]
                         if "content" in candidate and "parts" in candidate["content"]:
                             parts = candidate["content"]["parts"]

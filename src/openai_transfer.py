@@ -6,7 +6,6 @@ import time
 import uuid
 from typing import Dict, Any
 
-from .models import ChatCompletionRequest
 from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
@@ -14,8 +13,8 @@ from config import (
     should_include_thoughts,
     get_compatibility_mode_enabled
 )
-
 from log import log
+from .models import ChatCompletionRequest
 
 def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str, Any]:
     """

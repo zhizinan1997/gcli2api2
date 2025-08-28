@@ -2,13 +2,14 @@
 Memory Manager - 内存监控和控制系统
 """
 import gc
-import psutil
 import threading
 import time
 import weakref
-from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from threading import Lock
+from typing import Dict, Any, Optional, Callable
+
+import psutil
 
 from config import get_config_value
 from log import log
@@ -408,7 +409,6 @@ def check_memory_limit() -> bool:
     if manager.is_memory_emergency():
         log.warning("内存使用超过紧急阈值，执行后台清理（不影响当前请求）")
         try:
-            import threading
             cleanup_thread = threading.Thread(
                 target=_background_cleanup,
                 name="EmergencyMemoryCleanup",
@@ -421,7 +421,6 @@ def check_memory_limit() -> bool:
     elif manager.is_memory_critical():
         log.info("内存使用达到临界状态，执行后台清理（不影响当前请求）")
         try:
-            import threading
             cleanup_thread = threading.Thread(
                 target=_background_cleanup,
                 name="CriticalMemoryCleanup",

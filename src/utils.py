@@ -1,4 +1,5 @@
 import platform
+
 from config import CLI_VERSION
 
 def get_user_agent():

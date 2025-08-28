@@ -2,13 +2,14 @@
 Google API Client - Handles all communication with Google's Gemini API.
 This module is used by both OpenAI compatibility layer and native Gemini endpoints.
 """
+import asyncio
+import gc
 import json
+
 import httpx
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 
-from .credential_manager import CredentialManager
-from .utils import get_user_agent
 from config import (
     CODE_ASSIST_ENDPOINT,
     DEFAULT_SAFETY_SETTINGS,
@@ -23,10 +24,10 @@ from config import (
     get_retry_429_enabled,
     get_retry_429_interval
 )
-import asyncio
-
 from log import log
+from .credential_manager import CredentialManager
 from .usage_stats import record_successful_call
+from .utils import get_user_agent
 
 def _create_error_response(message: str, status_code: int = 500) -> Response:
     """Create standardized error response."""
@@ -363,7 +364,6 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
                         if hasattr(managed_stream_generator, '_chunk_count'):
                             managed_stream_generator._chunk_count += 1
                             if managed_stream_generator._chunk_count % 100 == 0:
-                                import gc
                                 gc.collect()
                     else:
                         yield f"data: {json.dumps(obj, separators=(',',':'))}\n\n".encode()

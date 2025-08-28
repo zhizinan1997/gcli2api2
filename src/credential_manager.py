@@ -2,19 +2,19 @@
 High-performance credential manager with call-based rotation and caching.
 Rotates credentials based on API call count rather than time for better quota distribution.
 """
-import os
-import json
 import asyncio
 import glob
-import aiofiles
-import toml
+import json
+import os
 import time
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple, Dict, Any
-import httpx
 
-from google.oauth2.credentials import Credentials
+import aiofiles
+import httpx
+import toml
 from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2.credentials import Credentials
 
 from config import (
     CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
@@ -22,14 +22,13 @@ from config import (
     get_auto_ban_enabled,
     get_auto_ban_error_codes
 )
-from .utils import get_user_agent, get_client_metadata
 from log import log
 from .memory_manager import register_cache_for_cleanup
+from .utils import get_user_agent, get_client_metadata
 
 def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
     """将文件路径标准化为相对于CREDENTIALS_DIR的相对路径"""
     if base_dir is None:
-        from config import CREDENTIALS_DIR
         base_dir = CREDENTIALS_DIR
     
     # 如果已经是相对路径且在当前目录内，直接返回
@@ -553,10 +552,6 @@ class CredentialManager:
         
         # 复制当前状态以避免并发修改问题
         try:
-            from config import CREDENTIALS_DIR
-            import glob
-            
-            
             # 检查文件系统中的凭证
             if os.path.exists(CREDENTIALS_DIR):
                 json_pattern = os.path.join(CREDENTIALS_DIR, "*.json")

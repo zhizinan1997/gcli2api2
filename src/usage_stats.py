@@ -3,11 +3,13 @@ Usage statistics module for tracking API calls per credential file.
 Uses the simpler logic: compare current time with next_reset_time.
 """
 import os
-import toml
-import aiofiles
+import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional
 from threading import Lock
+from typing import Dict, Any, Optional
+
+import aiofiles
+import toml
 
 from config import CREDENTIALS_DIR
 from log import log
@@ -123,7 +125,6 @@ class UsageStats:
     
     async def _save_stats(self):
         """Save statistics to the state file."""
-        import time
         current_time = time.time()
         
         # 使用脏标记和时间间隔控制，减少不必要的写入

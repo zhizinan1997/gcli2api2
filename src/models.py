@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
 from typing import List, Optional, Union, Dict, Any
+
+from pydantic import BaseModel, Field
 
 # Common Models
 class Model(BaseModel):

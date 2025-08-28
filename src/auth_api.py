@@ -1,26 +1,28 @@
 """
 认证API模块 - 处理OAuth认证流程和批量上传
 """
-import os
+import asyncio
 import json
-import time
-from log import log
-from .memory_manager import register_memory_cleanup
+import os
 import secrets
-import threading
+import socket
 import subprocess
-from typing import Optional, Dict, Any, List
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
+import threading
+import time
 import uuid
-from config import get_config_value
+from datetime import timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse, parse_qs
 
+import httpx
+from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request as GoogleAuthRequest
-import httpx
 
-from config import CREDENTIALS_DIR
+from config import CREDENTIALS_DIR, get_config_value
+from log import log
+from .memory_manager import register_memory_cleanup
 
 # OAuth Configuration
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -34,8 +36,6 @@ SCOPES = [
 # 回调服务器配置
 CALLBACK_HOST = 'localhost'
 DEFAULT_CALLBACK_PORT = int(get_config_value('oauth_callback_port', '8080', 'OAUTH_CALLBACK_PORT'))
-
-import socket
 
 # 全局状态管理
 auth_flows = {}  # 存储进行中的认证流程
@@ -609,7 +609,6 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
             
             if credentials.expiry:
                 if credentials.expiry.tzinfo is None:
-                    from datetime import timezone
                     expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
                 else:
                     expiry_utc = credentials.expiry
@@ -656,8 +655,6 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
 
 async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
-    import asyncio
-    
     try:
         log.info(f"[ASYNC] asyncio_complete_auth_flow开始执行: project_id={project_id}, user_session={user_session}")
         
@@ -873,7 +870,6 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             
             if credentials.expiry:
                 if credentials.expiry.tzinfo is None:
-                    from datetime import timezone
                     expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
                 else:
                     expiry_utc = credentials.expiry
@@ -941,7 +937,6 @@ def save_credentials(creds: Credentials, project_id: str) -> str:
     
     if creds.expiry:
         if creds.expiry.tzinfo is None:
-            from datetime import timezone
             expiry_utc = creds.expiry.replace(tzinfo=timezone.utc)
         else:
             expiry_utc = creds.expiry
