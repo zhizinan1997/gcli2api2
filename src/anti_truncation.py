@@ -315,31 +315,12 @@ class AntiTruncationStreamProcessor:
             }).encode()
     
     def _check_done_marker_in_text(self, text: str) -> bool:
-        """检查文本中是否包含done标记（严格检测）"""
+        """检测文本中是否包含DONE_MARKER（只检测指定标记）"""
         if not text:
             return False
-        
-        # 支持的done标记变体
-        done_variants = [
-            "[done]",
-            "[DONE]", 
-            "[Done]",
-            "【done】",
-            "【DONE】",
-            "[完成]",
-            "[结束]"
-        ]
-        
-        # 分行检查，每行去掉空白后检查
-        lines = text.strip().split('\n')
-        for line in lines:
-            line_clean = line.strip()
-            # 检查整行是否就是done标记的任何变体
-            for variant in done_variants:
-                if line_clean == variant or line_clean.endswith(variant):
-                    return True
-        
-        return False
+
+        # 只要文本中出现DONE_MARKER即可
+        return DONE_MARKER in text
     
     def _check_done_marker_in_chunk_content(self, content: str) -> bool:
         """检查单个chunk内容中是否包含done标记"""
