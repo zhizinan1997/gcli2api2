@@ -841,6 +841,9 @@ async def get_config(token: str = Depends(verify_token)):
         # 抗截断配置
         current_config["anti_truncation_max_attempts"] = config.get_anti_truncation_max_attempts()
         
+        # 兼容性配置
+        current_config["compatibility_mode_enabled"] = config.get_compatibility_mode_enabled()
+        
         # 服务器配置
         current_config["host"] = config.get_server_host()
         current_config["port"] = config.get_server_port()
@@ -861,6 +864,8 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("log_file")
         if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
             env_locked.append("anti_truncation_max_attempts")
+        if os.getenv("COMPATIBILITY_MODE"):
+            env_locked.append("compatibility_mode_enabled")
         if os.getenv("HOST"):
             env_locked.append("host")
         if os.getenv("PORT"):
@@ -935,6 +940,10 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["anti_truncation_max_attempts"], int) or new_config["anti_truncation_max_attempts"] < 1 or new_config["anti_truncation_max_attempts"] > 10:
                 raise HTTPException(status_code=400, detail="抗截断最大重试次数必须是1-10之间的整数")
         
+        if "compatibility_mode_enabled" in new_config:
+            if not isinstance(new_config["compatibility_mode_enabled"], bool):
+                raise HTTPException(status_code=400, detail="兼容性模式开关必须是布尔值")
+        
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
@@ -989,6 +998,8 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("log_file")
         if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
             env_locked_keys.add("anti_truncation_max_attempts")
+        if os.getenv("COMPATIBILITY_MODE"):
+            env_locked_keys.add("compatibility_mode_enabled")
         if os.getenv("HOST"):
             env_locked_keys.add("host")
         if os.getenv("PORT"):
@@ -1026,6 +1037,20 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         # 热更新配置到内存中的模块（如果可能）
         hot_updated = []  # 记录成功热更新的配置项
         restart_required = []  # 记录需要重启的配置项
+        
+        # 支持热更新的配置项：
+        # - calls_per_rotation: 凭证轮换调用次数
+        # - proxy, http_timeout, max_connections: 网络配置
+        # - log_level: 日志级别
+        # - auto_ban_enabled, auto_ban_error_codes: 自动封禁配置
+        # - retry_429_enabled, retry_429_max_retries, retry_429_interval: 429重试配置
+        # - anti_truncation_max_attempts: 抗截断配置
+        # - compatibility_mode_enabled: 兼容性模式
+        # - api_password, panel_password, password: 访问密码
+        #
+        # 需要重启的配置项：
+        # - host, port: 服务器地址和端口
+        # - log_file: 日志文件路径
         
         try:
             # save_config_to_toml已经更新了缓存，不需要reload
@@ -1076,7 +1101,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             hot_updatable_configs = [
                 "auto_ban_enabled", "auto_ban_error_codes",
                 "retry_429_enabled", "retry_429_max_retries", "retry_429_interval",
-                "anti_truncation_max_attempts"
+                "anti_truncation_max_attempts", "compatibility_mode_enabled"
             ]
             
             for config_key in hot_updatable_configs:

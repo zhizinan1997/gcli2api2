@@ -2495,7 +2495,7 @@ MEMORY_CHECK_INTERVAL=10            # 检查间隔(秒)</pre>
             setConfigField('proxy', currentConfig.proxy || '');
             
             // 自动封禁配置
-            document.getElementById('autoBanEnabled').checked = currentConfig.auto_ban_enabled || false;
+            document.getElementById('autoBanEnabled').checked = Boolean(currentConfig.auto_ban_enabled);
             setConfigField('autoBanErrorCodes', (currentConfig.auto_ban_error_codes || []).join(','));
             
             // 性能配置
@@ -2504,7 +2504,7 @@ MEMORY_CHECK_INTERVAL=10            # 检查间隔(秒)</pre>
             setConfigField('maxConnections', currentConfig.max_connections || 100);
             
             // 429重试配置
-            document.getElementById('retry429Enabled').checked = currentConfig.retry_429_enabled || false;
+            document.getElementById('retry429Enabled').checked = Boolean(currentConfig.retry_429_enabled);
             setConfigField('retry429MaxRetries', currentConfig.retry_429_max_retries || 20);
             setConfigField('retry429Interval', currentConfig.retry_429_interval || 0.1);
             
@@ -2513,7 +2513,7 @@ MEMORY_CHECK_INTERVAL=10            # 检查间隔(秒)</pre>
             setConfigField('logFile', currentConfig.log_file || 'log.txt');
             
             // 兼容性配置
-            document.getElementById('compatibilityModeEnabled').checked = currentConfig.compatibility_mode_enabled || false;
+            document.getElementById('compatibilityModeEnabled').checked = Boolean(currentConfig.compatibility_mode_enabled);
             
             // 抗截断配置
             setConfigField('antiTruncationMaxAttempts', currentConfig.anti_truncation_max_attempts || 3);
