@@ -364,6 +364,11 @@ class MemoryManager:
 # 全局内存管理器实例
 memory_manager = MemoryManager()
 
+# 清理状态跟踪（防止重复清理）
+_last_cleanup_time = 0
+_cleanup_in_progress = False
+_cleanup_lock = Lock()
+
 
 def get_memory_manager() -> MemoryManager:
     """获取全局内存管理器实例"""
@@ -371,22 +376,65 @@ def get_memory_manager() -> MemoryManager:
 
 
 def check_memory_limit() -> bool:
-    """检查内存是否超限，如果超限则执行清理"""
+    """检查内存是否超限，如果超限则执行清理，但不阻止正常聊天"""
     if not MEMORY_MONITORING_ENABLED:
+        return True
+    
+    global _last_cleanup_time, _cleanup_in_progress
+    import time
+    current_time = time.time()
+    
+    # 防止频繁清理（至少间隔30秒）
+    if _cleanup_in_progress or (current_time - _last_cleanup_time < 30):
         return True
         
     manager = get_memory_manager()
     
+    def _background_cleanup():
+        """后台清理函数"""
+        global _cleanup_in_progress, _last_cleanup_time
+        
+        with _cleanup_lock:
+            if _cleanup_in_progress:
+                return  # 已经有清理在进行
+            _cleanup_in_progress = True
+        
+        try:
+            manager.force_cleanup()
+            _last_cleanup_time = time.time()
+        except Exception as e:
+            log.error(f"后台内存清理失败: {e}")
+        finally:
+            _cleanup_in_progress = False
+    
+    # 只在紧急状态下执行清理，但不阻止请求
     if manager.is_memory_emergency():
-        log.error("内存使用超过紧急阈值，执行强制清理")
-        manager.force_cleanup()
-        return False
+        log.warning("内存使用超过紧急阈值，执行后台清理（不影响当前请求）")
+        try:
+            import threading
+            cleanup_thread = threading.Thread(
+                target=_background_cleanup,
+                name="EmergencyMemoryCleanup",
+                daemon=True
+            )
+            cleanup_thread.start()
+        except Exception as e:
+            log.error(f"启动后台内存清理失败: {e}")
     
-    if manager.is_memory_critical():
-        log.warning("内存使用达到临界状态，执行清理")
-        manager.force_cleanup()
-        return False
+    elif manager.is_memory_critical():
+        log.info("内存使用达到临界状态，执行后台清理（不影响当前请求）")
+        try:
+            import threading
+            cleanup_thread = threading.Thread(
+                target=_background_cleanup,
+                name="CriticalMemoryCleanup",
+                daemon=True
+            )
+            cleanup_thread.start()
+        except Exception as e:
+            log.error(f"启动后台内存清理失败: {e}")
     
+    # 始终返回 True，不阻止请求
     return True
 
 
