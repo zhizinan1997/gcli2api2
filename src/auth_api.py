@@ -5,6 +5,7 @@ import os
 import json
 import time
 from log import log
+from .memory_manager import register_memory_cleanup
 import secrets
 import threading
 import subprocess
@@ -38,6 +39,37 @@ import socket
 
 # 全局状态管理
 auth_flows = {}  # 存储进行中的认证流程
+
+def cleanup_auth_flows_for_memory():
+    """清理认证流程以释放内存"""
+    global auth_flows
+    cleaned = cleanup_expired_flows()
+    # 如果还是太多，强制清理一些旧的流程
+    if len(auth_flows) > 10:
+        current_time = time.time()
+        # 按创建时间排序，保留最新的10个
+        sorted_flows = sorted(auth_flows.items(), key=lambda x: x[1].get('created_at', 0), reverse=True)
+        new_auth_flows = dict(sorted_flows[:10])
+        
+        # 清理被移除的流程
+        for state, flow_data in auth_flows.items():
+            if state not in new_auth_flows:
+                try:
+                    if flow_data.get('server'):
+                        server = flow_data['server']
+                        port = flow_data.get('callback_port')
+                        async_shutdown_server(server, port)
+                except Exception:
+                    pass
+                flow_data.clear()
+        
+        auth_flows = new_auth_flows
+        log.info(f"强制清理认证流程，保留 {len(auth_flows)} 个最新流程")
+    
+    return len(auth_flows)
+
+# 注册内存清理函数
+register_memory_cleanup("auth_flows", cleanup_auth_flows_for_memory)
 
 def find_available_port(start_port: int = None) -> int:
     """动态查找可用端口"""
@@ -961,17 +993,19 @@ def async_shutdown_server(server, port):
 def cleanup_expired_flows():
     """清理过期的认证流程 - 内存优化版本"""
     current_time = time.time()
-    expired_states = []
     
     # 使用更短的过期时间，减少内存占用
-    EXPIRY_TIME = 900  # 15分钟过期（原来30分钟）
+    EXPIRY_TIME = 600  # 10分钟过期，减少内存占用
     
-    for state, flow_data in auth_flows.items():
-        if current_time - flow_data['created_at'] > EXPIRY_TIME:
-            expired_states.append(state)
+    # 直接遍历删除，避免创建额外列表
+    states_to_remove = [
+        state for state, flow_data in auth_flows.items()
+        if current_time - flow_data['created_at'] > EXPIRY_TIME
+    ]
     
     # 批量清理，提高效率
-    for state in expired_states:
+    cleaned_count = 0
+    for state in states_to_remove:
         flow_data = auth_flows.get(state)
         if flow_data:
             # 快速关闭可能存在的服务器
@@ -983,15 +1017,16 @@ def cleanup_expired_flows():
             except Exception as e:
                 log.debug(f"清理过期流程时启动异步关闭服务器失败: {e}")
             
-            # 显式清理流程数据
+            # 显式清理流程数据，释放内存
             flow_data.clear()
             del auth_flows[state]
+            cleaned_count += 1
     
-    if expired_states:
-        log.info(f"清理了 {len(expired_states)} 个过期的认证流程")
+    if cleaned_count > 0:
+        log.info(f"清理了 {cleaned_count} 个过期的认证流程")
     
-    # 当字典过大时，主动触发垃圾回收
-    if len(auth_flows) > 50:
+    # 更积极的垃圾回收触发条件
+    if len(auth_flows) > 20:  # 降低阈值
         import gc
         gc.collect()
         log.debug(f"触发垃圾回收，当前活跃认证流程数: {len(auth_flows)}")
@@ -1012,8 +1047,11 @@ def get_auth_status(project_id: str) -> Dict[str, Any]:
     }
 
 
-# 鉴权功能
+# 鉴权功能 - 使用更小的数据结构
+from collections import defaultdict
+import weakref
 auth_tokens = {}  # 存储有效的认证令牌
+TOKEN_EXPIRY = 21600  # 6小时令牌过期时间，减少内存占用
 
 
 def verify_password(password: str) -> bool:
@@ -1024,29 +1062,44 @@ def verify_password(password: str) -> bool:
 
 
 def generate_auth_token() -> str:
-    """生成认证令牌"""
+    """生成认证令牌 - 优化内存使用"""
+    # 清理过期令牌
+    cleanup_expired_tokens()
+    
     token = secrets.token_urlsafe(32)
-    auth_tokens[token] = {
-        'created_at': time.time(),
-        'valid': True
-    }
+    # 只存储创建时间，节省内存
+    auth_tokens[token] = time.time()
     return token
 
 
 def verify_auth_token(token: str) -> bool:
-    """验证认证令牌"""
+    """验证认证令牌 - 优化版本"""
     if not token or token not in auth_tokens:
         return False
     
-    token_data = auth_tokens[token]
+    created_at = auth_tokens[token]
     
-    # 检查令牌是否过期 (24小时)
-    if time.time() - token_data['created_at'] > 86400:
+    # 检查令牌是否过期 (使用更短的过期时间)
+    if time.time() - created_at > TOKEN_EXPIRY:
         del auth_tokens[token]
         return False
     
-    return token_data['valid']
+    return True
 
+
+def cleanup_expired_tokens():
+    """清理过期的认证令牌"""
+    current_time = time.time()
+    expired_tokens = [
+        token for token, created_at in auth_tokens.items()
+        if current_time - created_at > TOKEN_EXPIRY
+    ]
+    
+    for token in expired_tokens:
+        del auth_tokens[token]
+    
+    if expired_tokens:
+        log.debug(f"清理了 {len(expired_tokens)} 个过期的认证令牌")
 
 def invalidate_auth_token(token: str):
     """使认证令牌失效"""

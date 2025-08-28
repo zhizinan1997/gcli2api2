@@ -1261,6 +1261,58 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 </div>
                             </div>
                         </div>
+
+                        <div class="config-group">
+                            <h4>配置热更新说明</h4>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724;">
+                                    <strong>🔥 热更新配置（立即生效）：</strong>
+                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
+                                        <li><strong>网络配置：</strong>代理设置、HTTP超时时间、最大连接数</li>
+                                        <li><strong>API配置：</strong>凭证轮换次数、429重试设置、自动封禁配置</li>
+                                        <li><strong>密码配置：</strong>API密码、控制面板密码、通用密码</li>
+                                        <li><strong>日志级别：</strong>debug、info、warning、error、critical</li>
+                                        <li><strong>功能配置：</strong>抗截断最大重试次数</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #fff3cd; border: 1px solid #ffc107; color: #856404;">
+                                    <strong>🔄 需要重启的配置：</strong>
+                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
+                                        <li><strong>服务器配置：</strong>主机地址、端口号</li>
+                                        <li><strong>日志文件：</strong>日志文件路径</li>
+                                        <li><strong>目录配置：</strong>凭证目录路径、Code Assist端点</li>
+                                        <li><strong>内存监控：</strong>所有内存监控相关配置</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #e3f2fd; border: 1px solid #1976d2; color: #1565c0;">
+                                    <strong>💡 内存监控配置：</strong>
+                                    <div style="margin: 8px 0; color: #212529;">
+                                        内存监控功能默认关闭，需要通过环境变量启用：
+                                    </div>
+                                    <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 8px 0;">
+# 启用内存监控
+AUTO_START_MEMORY_MONITOR=true
+
+# 内存限制配置 (可选)
+MAX_MEMORY_MB=95                    # 最大内存限制(MB)
+MEMORY_WARNING_THRESHOLD=0.8        # 警告阈值(80%)
+MEMORY_CRITICAL_THRESHOLD=0.9       # 清理阈值(90%)
+MEMORY_EMERGENCY_THRESHOLD=0.95     # 紧急阈值(95%)
+MEMORY_CHECK_INTERVAL=10            # 检查间隔(秒)</pre>
+                                    
+                                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 8px; margin-top: 10px; color: #721c24; border-radius: 4px;">
+                                        <strong>⚠️ 注意：</strong>内存监控配置需要<strong>重启服务器</strong>才能生效
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2508,7 +2560,21 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 const data = await response.json();
 
                 if (response.ok) {
-                    showStatus('配置保存成功，已立即生效', 'success');
+                    let message = '配置保存成功';
+                    
+                    // 处理热更新状态信息
+                    if (data.hot_updated && data.hot_updated.length > 0) {
+                        message += `，以下配置已立即生效: ${data.hot_updated.join(', ')}`;
+                    }
+                    
+                    // 处理重启提醒
+                    if (data.restart_required && data.restart_required.length > 0) {
+                        message += `\n⚠️ 重启提醒: ${data.restart_notice}`;
+                        showStatus(message, 'info');
+                    } else {
+                        showStatus(message, 'success');
+                    }
+                    
                     // 重新加载配置以获取最新状态
                     setTimeout(() => loadConfig(), 1000);
                 } else {

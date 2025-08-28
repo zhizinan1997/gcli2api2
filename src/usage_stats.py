@@ -11,6 +11,7 @@ from threading import Lock
 
 from config import CREDENTIALS_DIR
 from log import log
+from .memory_manager import register_cache_for_cleanup
 
 
 def _get_next_utc_7am() -> datetime:
@@ -36,6 +37,9 @@ class UsageStats:
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
         self._stats_cache: Dict[str, Dict[str, Any]] = {}
         self._initialized = False
+        self._cache_dirty = False  # 缓存脏标记，减少不必要的写入
+        self._last_save_time = 0
+        self._save_interval = 60  # 最多每分钟保存一次，减少I/O
     
     async def initialize(self):
         """Initialize the usage stats module."""
@@ -45,6 +49,9 @@ class UsageStats:
         await self._load_stats()
         self._initialized = True
         log.info("Usage statistics module initialized")
+        
+        # 注册到内存管理器
+        register_cache_for_cleanup("usage_stats", self)
     
     def _normalize_filename(self, filename: str) -> str:
         """Normalize filename to relative path for consistent storage."""
@@ -115,7 +122,14 @@ class UsageStats:
             self._stats_cache = {}
     
     async def _save_stats(self):
-        """Save statistics to the state file."""
+        """Save statistics to the state file - 优化版本."""
+        import time
+        current_time = time.time()
+        
+        # 使用脏标记和时间间隔控制，减少不必要的写入
+        if not self._cache_dirty or (current_time - self._last_save_time < self._save_interval):
+            return
+            
         try:
             # Load existing state
             state_data = {}
@@ -135,6 +149,8 @@ class UsageStats:
             async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
                 await f.write(toml.dumps(state_data))
                 
+            self._cache_dirty = False  # 清除脏标记
+            self._last_save_time = current_time
             log.debug("Usage statistics saved successfully")
         except Exception as e:
             log.error(f"Failed to save usage statistics: {e}")
@@ -152,6 +168,7 @@ class UsageStats:
                 "daily_limit_gemini_2_5_pro": 100,
                 "daily_limit_total": 1500
             }
+            self._cache_dirty = True  # 标记缓存已修改
         
         return self._stats_cache[normalized_filename]
     
@@ -183,6 +200,7 @@ class UsageStats:
                     "next_reset_time": new_next_reset.isoformat()
                 })
                 
+                self._cache_dirty = True  # 标记缓存已修改
                 log.info(f"Daily quota reset performed. Previous stats - Gemini 2.5 Pro: {old_gemini_calls}, Total: {old_total_calls}")
                 return True
             
@@ -210,6 +228,8 @@ class UsageStats:
                 stats["total_calls"] += 1
                 if is_gemini_2_5_pro:
                     stats["gemini_2_5_pro_calls"] += 1
+                
+                self._cache_dirty = True  # 标记缓存已修改
                 
                 log.debug(f"Usage recorded - File: {normalized_filename}, Model: {model_name}, "
                          f"Gemini 2.5 Pro: {stats['gemini_2_5_pro_calls']}/{stats.get('daily_limit_gemini_2_5_pro', 100)}, "
@@ -342,6 +362,28 @@ class UsageStats:
                 log.info("Reset usage statistics for all credential files")
         
         await self._save_stats()
+    
+    def emergency_cleanup(self) -> Dict[str, int]:
+        """紧急内存清理"""
+        log.warning("执行使用统计紧急内存清理")
+        cleaned = {'stats_cleared': 0}
+        
+        if self._stats_cache:
+            original_count = len(self._stats_cache)
+            # 只保留最近有活动的统计
+            keep_stats = {}
+            for filename, stats in list(self._stats_cache.items()):
+                if stats.get("total_calls", 0) > 0:  # 有调用记录的
+                    keep_stats[filename] = stats
+                    if len(keep_stats) >= 10:  # 最多保留10个
+                        break
+            
+            self._stats_cache = keep_stats
+            self._cache_dirty = True
+            cleaned['stats_cleared'] = original_count - len(keep_stats)
+        
+        log.info(f"使用统计紧急清理完成: {cleaned}")
+        return cleaned
 
 
 # Global instance

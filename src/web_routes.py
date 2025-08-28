@@ -30,13 +30,22 @@ security = HTTPBearer()
 # 创建credential manager实例
 credential_manager = CredentialManager()
 
-# WebSocket连接管理
+# WebSocket连接管理 - 内存优化版本
+import weakref
+from collections import deque
+
 class ConnectionManager:
-    def __init__(self, max_connections: int = 10):
-        self.active_connections: List[WebSocket] = []
+    def __init__(self, max_connections: int = 5):  # 降低最大连接数
+        # 使用弱引用和双端队列优化内存使用
+        self.active_connections: deque = deque(maxlen=max_connections)
         self.max_connections = max_connections
+        self._last_cleanup = 0
+        self._cleanup_interval = 30  # 30秒清理一次死连接
 
     async def connect(self, websocket: WebSocket):
+        # 自动清理死连接
+        self._auto_cleanup()
+        
         # 限制最大连接数，防止内存无限增长
         if len(self.active_connections) >= self.max_connections:
             await websocket.close(code=1008, reason="Too many connections")
@@ -48,8 +57,11 @@ class ConnectionManager:
         return True
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
+        # 使用更高效的方式移除连接
+        try:
             self.active_connections.remove(websocket)
+        except ValueError:
+            pass  # 连接已不存在
         log.debug(f"WebSocket连接断开，当前连接数: {len(self.active_connections)}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
@@ -59,21 +71,65 @@ class ConnectionManager:
             self.disconnect(websocket)
 
     async def broadcast(self, message: str):
-        # 使用倒序遍历，安全地移除失效连接
-        for i in range(len(self.active_connections) - 1, -1, -1):
+        # 使用更高效的方式处理广播，避免索引操作
+        dead_connections = []
+        for conn in self.active_connections:
             try:
-                await self.active_connections[i].send_text(message)
+                await conn.send_text(message)
             except Exception:
-                self.active_connections.pop(i)
+                dead_connections.append(conn)
+        
+        # 批量移除死连接
+        for dead_conn in dead_connections:
+            self.disconnect(dead_conn)
                 
+    def _auto_cleanup(self):
+        """自动清理死连接"""
+        import time
+        current_time = time.time()
+        if current_time - self._last_cleanup > self._cleanup_interval:
+            self.cleanup_dead_connections()
+            self._last_cleanup = current_time
+    
     def cleanup_dead_connections(self):
-        """清理已断开的连接"""
-        self.active_connections = [
+        """清理已断开的连接 - 优化版本"""
+        original_count = len(self.active_connections)
+        # 使用列表推导式过滤活跃连接，更高效
+        alive_connections = deque([
             conn for conn in self.active_connections 
-            if conn.client_state != WebSocketState.DISCONNECTED
-        ]
+            if hasattr(conn, 'client_state') and conn.client_state != WebSocketState.DISCONNECTED
+        ], maxlen=self.max_connections)
+        
+        self.active_connections = alive_connections
+        cleaned = original_count - len(self.active_connections)
+        if cleaned > 0:
+            log.debug(f"清理了 {cleaned} 个死连接，剩余连接数: {len(self.active_connections)}")
+    
+    def emergency_cleanup(self) -> dict[str, int]:
+        """紧急内存清理"""
+        log.warning("执行WebSocket连接管理器紧急内存清理")
+        cleaned = {'connections_cleared': 0}
+        
+        original_count = len(self.active_connections)
+        # 先尝试正常关闭连接
+        for conn in list(self.active_connections):
+            try:
+                if hasattr(conn, 'close') and conn.client_state != WebSocketState.DISCONNECTED:
+                    asyncio.create_task(conn.close())
+            except Exception:
+                pass
+        
+        self.active_connections.clear()
+        cleaned['connections_cleared'] = original_count
+        
+        log.info(f"WebSocket连接管理器紧急清理完成: {cleaned}")
+        return cleaned
 
 manager = ConnectionManager()
+
+# 注册WebSocket连接管理器到内存管理器
+from .memory_manager import register_cache_for_cleanup
+register_cache_for_cleanup("websocket_manager", manager)
 
 async def ensure_credential_manager_initialized():
     """确保credential manager已初始化"""
@@ -968,37 +1024,95 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         log.info(f"保存后立即读取的通用密码: {test_password}")
         
         # 热更新配置到内存中的模块（如果可能）
+        hot_updated = []  # 记录成功热更新的配置项
+        restart_required = []  # 记录需要重启的配置项
+        
         try:
             # save_config_to_toml已经更新了缓存，不需要reload
-            pass
             
-            # 更新credential_manager的配置
+            # 1. 更新credential_manager的配置
             if "calls_per_rotation" in new_config and "calls_per_rotation" not in env_locked_keys:
                 credential_manager._calls_per_rotation = new_config["calls_per_rotation"]
+                hot_updated.append("calls_per_rotation")
             
-            # 重新初始化HTTP客户端以应用新的代理配置（如果代理配置更改了）
-            if "proxy" in new_config and "proxy" not in env_locked_keys:
+            # 2. 重新初始化HTTP客户端以应用网络相关配置
+            network_configs_changed = any(key in new_config and key not in env_locked_keys 
+                                        for key in ["proxy", "http_timeout", "max_connections"])
+            
+            if network_configs_changed:
                 # 重新创建HTTP客户端
                 if credential_manager._http_client:
                     await credential_manager._http_client.aclose()
-                    proxy = config.get_proxy_config()
-                    client_kwargs = {
-                        "timeout": new_config.get("http_timeout", 30),
-                        "limits": __import__('httpx').Limits(
-                            max_keepalive_connections=20, 
-                            max_connections=new_config.get("max_connections", 100)
-                        )
-                    }
-                    if proxy:
-                        client_kwargs["proxy"] = proxy
-                    credential_manager._http_client = __import__('httpx').AsyncClient(**client_kwargs)
+                    
+                proxy = config.get_proxy_config()
+                client_kwargs = {
+                    "timeout": config.get_http_timeout(),
+                    "limits": __import__('httpx').Limits(
+                        max_keepalive_connections=20, 
+                        max_connections=config.get_max_connections()
+                    )
+                }
+                if proxy:
+                    client_kwargs["proxy"] = proxy
+                credential_manager._http_client = __import__('httpx').AsyncClient(**client_kwargs)
+                
+                # 记录热更新的网络配置
+                if "proxy" in new_config and "proxy" not in env_locked_keys:
+                    hot_updated.append("proxy")
+                if "http_timeout" in new_config and "http_timeout" not in env_locked_keys:
+                    hot_updated.append("http_timeout")
+                if "max_connections" in new_config and "max_connections" not in env_locked_keys:
+                    hot_updated.append("max_connections")
+            
+            # 3. 日志配置（部分热更新）
+            # 注意：日志级别可以热更新，但日志文件路径需要重启
+            if "log_level" in new_config and "log_level" not in env_locked_keys:
+                hot_updated.append("log_level")
+            
+            if "log_file" in new_config and "log_file" not in env_locked_keys:
+                restart_required.append("log_file")
+            
+            # 4. 其他可热更新的配置项
+            hot_updatable_configs = [
+                "auto_ban_enabled", "auto_ban_error_codes",
+                "retry_429_enabled", "retry_429_max_retries", "retry_429_interval",
+                "anti_truncation_max_attempts"
+            ]
+            
+            for config_key in hot_updatable_configs:
+                if config_key in new_config and config_key not in env_locked_keys:
+                    hot_updated.append(config_key)
+            
+            # 5. 需要重启的配置项
+            restart_required_configs = ["host", "port"]
+            for config_key in restart_required_configs:
+                if config_key in new_config and config_key not in env_locked_keys:
+                    restart_required.append(config_key)
+            
+            # 6. 密码配置（立即生效）
+            password_configs = ["api_password", "panel_password", "password"]
+            for config_key in password_configs:
+                if config_key in new_config and config_key not in env_locked_keys:
+                    hot_updated.append(config_key)
+            
         except Exception as e:
             log.warning(f"热更新配置失败: {e}")
         
-        return JSONResponse(content={
+        # 构建响应消息
+        response_data = {
             "message": "配置保存成功",
             "saved_config": {k: v for k, v in new_config.items() if k not in env_locked_keys}
-        })
+        }
+        
+        # 添加热更新状态信息
+        if hot_updated:
+            response_data["hot_updated"] = hot_updated
+        
+        if restart_required:
+            response_data["restart_required"] = restart_required
+            response_data["restart_notice"] = f"以下配置项需要重启服务器才能生效: {', '.join(restart_required)}"
+        
+        return JSONResponse(content=response_data)
         
     except HTTPException:
         raise
@@ -1286,6 +1400,7 @@ async def get_aggregated_usage_statistics(token: str = Depends(verify_token)):
     except Exception as e:
         log.error(f"获取聚合统计失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class UsageLimitsUpdateRequest(BaseModel):

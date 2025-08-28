@@ -16,6 +16,7 @@ from config import get_config_value, get_available_models, is_fake_streaming_mod
 from .anti_truncation import apply_anti_truncation_to_stream
 from config import get_base_model_name
 from log import log
+from .memory_manager import check_memory_limit, get_memory_usage
 
 # 创建路由器
 router = APIRouter()
@@ -122,6 +123,12 @@ async def generate_content(
     api_key: str = Depends(authenticate_gemini_flexible)
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
+    
+    # 内存检查
+    if not check_memory_limit():
+        memory_info = get_memory_usage()
+        log.error(f"内存使用过高，拒绝请求: {memory_info['rss_mb']:.1f}MB ({memory_info['usage_percent']*100:.1f}%)")
+        raise HTTPException(status_code=503, detail="服务器内存使用过高，请稍后重试")
     
     # 获取原始请求数据
     try:
@@ -230,6 +237,12 @@ async def stream_generate_content(
     log.info(f"Stream request received for model: {model}")
     log.info(f"Request headers: {dict(request.headers)}")
     log.info(f"API key received: {api_key[:10] if api_key else None}...")
+    
+    # 内存检查
+    if not check_memory_limit():
+        memory_info = get_memory_usage()
+        log.error(f"内存使用过高，拒绝流式请求: {memory_info['rss_mb']:.1f}MB ({memory_info['usage_percent']*100:.1f}%)")
+        raise HTTPException(status_code=503, detail="服务器内存使用过高，请稍后重试")
     
     # 获取原始请求数据
     try:

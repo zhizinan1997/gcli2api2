@@ -25,6 +25,7 @@ from config import (
 )
 from .utils import get_user_agent, get_client_metadata
 from log import log
+from .memory_manager import register_cache_for_cleanup, check_memory_limit
 
 def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
     """将文件路径标准化为相对于CREDENTIALS_DIR的相对路径"""
@@ -67,6 +68,7 @@ class CredentialManager:
         # Call-based rotation instead of time-based
         self._cached_credentials: Optional[Credentials] = None
         self._cached_project_id: Optional[str] = None
+        self._cache_timestamp = 0  # 缓存时间戳，用于TTL机制
         self._call_count = 0
         self._calls_per_rotation = calls_per_rotation or get_calls_per_rotation()
         
@@ -80,12 +82,14 @@ class CredentialManager:
         # TOML状态文件路径
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
         self._creds_state: Dict[str, Any] = {}
+        self._state_dirty = False  # 状态脏标记，减少不必要的写入
         
         # 当前使用的凭证文件路径
         self._current_file_path: Optional[str] = None
         
-        # 最后一次文件扫描时间
+        # 最后一次文件扫描时间和缓存TTL
         self._last_file_scan_time = 0
+        self._cache_ttl = 300  # 5分钟缓存TTL
         
         self._initialized = False
 
@@ -111,12 +115,49 @@ class CredentialManager:
             self._http_client = httpx.AsyncClient(**client_kwargs)
             
             self._initialized = True
+            
+            # 注册到内存管理器
+            register_cache_for_cleanup("credential_manager", self)
 
     async def close(self):
         """Clean up resources."""
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+    
+    def emergency_cleanup(self) -> Dict[str, int]:
+        """紧急内存清理"""
+        log.warning("执行凭证管理器紧急内存清理")
+        cleaned = {
+            'cache_cleared': 0,
+            'states_cleaned': 0
+        }
+        
+        # 清理缓存
+        if self._cached_credentials:
+            self._cached_credentials = None
+            self._cached_project_id = None
+            self._cache_timestamp = 0
+            cleaned['cache_cleared'] = 1
+        
+        # 清理过期状态
+        if self._creds_state:
+            original_count = len(self._creds_state)
+            # 只保留最近成功的凭证状态
+            current_time = time.time()
+            keep_states = {}
+            for filename, state in list(self._creds_state.items()):
+                if state.get("last_success") and not state.get("disabled", False):
+                    keep_states[filename] = state
+                    if len(keep_states) >= 5:  # 最多保留5个状态
+                        break
+            
+            self._creds_state = keep_states
+            self._state_dirty = True
+            cleaned['states_cleaned'] = original_count - len(keep_states)
+        
+        log.info(f"凭证管理器紧急清理完成: {cleaned}")
+        return cleaned
 
     async def _load_state(self):
         """从TOML文件加载状态"""
@@ -133,11 +174,16 @@ class CredentialManager:
             self._creds_state = {}
 
     async def _save_state(self):
-        """保存状态到TOML文件"""
+        """保存状态到TOML文件 - 优化版本"""
+        # 使用脏标记，只在必要时写入
+        if not self._state_dirty:
+            return
+            
         try:
             os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
             async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
                 await f.write(toml.dumps(self._creds_state))
+            self._state_dirty = False  # 清除脏标记
         except Exception as e:
             log.error(f"Failed to save state file: {e}")
 
@@ -183,6 +229,7 @@ class CredentialManager:
             "last_success": None,
             "user_email": None
         }
+        self._state_dirty = True  # 标记状态已修改
         return self._creds_state[relative_filename]
 
     async def record_error(self, filename: str, status_code: int, response_content: str = ""):
@@ -217,6 +264,7 @@ class CredentialManager:
             else:
                 log.debug(f"AUTO_BAN disabled, status_code {status_code} recorded but no auto ban")
             
+            self._state_dirty = True  # 标记状态已修改
             await self._save_state()
 
     async def record_success(self, filename: str, api_type: str = "other"):
@@ -232,6 +280,7 @@ class CredentialManager:
             
             cred_state["last_success"] = datetime.now(timezone.utc).isoformat()
             
+            self._state_dirty = True  # 标记状态已修改
             await self._save_state()
 
     async def fetch_user_email(self, filename: str) -> Optional[str]:
@@ -298,6 +347,7 @@ class CredentialManager:
             async with self._lock:
                 cred_state = self._get_cred_state(filename)
                 cred_state["user_email"] = email
+                self._state_dirty = True  # 标记状态已修改
                 await self._save_state()
         
         return email
@@ -444,12 +494,17 @@ class CredentialManager:
             log.info(f"Removed state for deleted files: {files_to_remove}")
 
     def _is_cache_valid(self) -> bool:
-        """Check if cached credentials are still valid based on call count and token expiration."""
+        """Check if cached credentials are still valid based on call count, token expiration, and TTL."""
         if not self._cached_credentials:
             return False
         
         # 如果没有凭证文件，缓存无效
         if not self._credential_files:
+            return False
+        
+        # 检查缓存TTL
+        current_time = time.time()
+        if current_time - self._cache_timestamp > self._cache_ttl:
             return False
         
         # Check if we've reached the rotation threshold (use dynamic config)
