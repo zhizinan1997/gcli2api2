@@ -11,20 +11,20 @@ from log import log
 # 反截断配置
 DONE_MARKER = "[done]"
 MAX_CONTINUATION_ATTEMPTS = 3
-CONTINUATION_PROMPT = """请从刚才被截断的地方继续输出剩余的所有内容。
+CONTINUATION_PROMPT = f"""请从刚才被截断的地方继续输出剩余的所有内容。
 
 重要提醒：
 1. 不要重复前面已经输出的内容
 2. 直接继续输出，无需任何前言或解释
-3. 当你完整完成所有内容输出后，必须在最后一行单独输出：[done]
-4. [done]标记表示你的回答已经完全结束，这是必需的结束标记
+3. 当你完整完成所有内容输出后，必须在最后一行单独输出：{DONE_MARKER}
+4. {DONE_MARKER} 标记表示你的回答已经完全结束，这是必需的结束标记
 
 现在请继续输出："""
 
 def apply_anti_truncation(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     对请求payload应用反截断处理
-    在systemInstruction中添加提醒，要求模型在结束时输出[done]标记
+    在systemInstruction中添加提醒，要求模型在结束时输出DONE_MARKER标记
     
     Args:
         payload: 原始请求payload
