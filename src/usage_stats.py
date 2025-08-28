@@ -122,7 +122,7 @@ class UsageStats:
             self._stats_cache = {}
     
     async def _save_stats(self):
-        """Save statistics to the state file - 优化版本."""
+        """Save statistics to the state file."""
         import time
         current_time = time.time()
         

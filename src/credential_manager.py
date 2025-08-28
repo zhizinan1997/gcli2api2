@@ -173,7 +173,7 @@ class CredentialManager:
             self._creds_state = {}
 
     async def _save_state(self):
-        """保存状态到TOML文件 - 优化版本"""
+        """保存状态到TOML文件"""
         # 使用脏标记，只在必要时写入
         if not self._state_dirty:
             return

@@ -991,7 +991,7 @@ def async_shutdown_server(server, port):
     log.debug(f"开始异步关闭端口 {port} 的OAuth回调服务器")
 
 def cleanup_expired_flows():
-    """清理过期的认证流程 - 内存优化版本"""
+    """清理过期的认证流程"""
     current_time = time.time()
     
     # 使用更短的过期时间，减少内存占用
@@ -1048,8 +1048,6 @@ def get_auth_status(project_id: str) -> Dict[str, Any]:
 
 
 # 鉴权功能 - 使用更小的数据结构
-from collections import defaultdict
-import weakref
 auth_tokens = {}  # 存储有效的认证令牌
 TOKEN_EXPIRY = 21600  # 6小时令牌过期时间，减少内存占用
 
@@ -1062,7 +1060,7 @@ def verify_password(password: str) -> bool:
 
 
 def generate_auth_token() -> str:
-    """生成认证令牌 - 优化内存使用"""
+    """生成认证令牌"""
     # 清理过期令牌
     cleanup_expired_tokens()
     
@@ -1073,7 +1071,7 @@ def generate_auth_token() -> str:
 
 
 def verify_auth_token(token: str) -> bool:
-    """验证认证令牌 - 优化版本"""
+    """验证认证令牌"""
     if not token or token not in auth_tokens:
         return False
     

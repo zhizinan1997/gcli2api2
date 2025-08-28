@@ -30,7 +30,7 @@ security = HTTPBearer()
 # 创建credential manager实例
 credential_manager = CredentialManager()
 
-# WebSocket连接管理 - 内存优化版本
+# WebSocket连接管理
 import weakref
 from collections import deque
 
@@ -92,7 +92,7 @@ class ConnectionManager:
             self._last_cleanup = current_time
     
     def cleanup_dead_connections(self):
-        """清理已断开的连接 - 优化版本"""
+        """清理已断开的连接"""
         original_count = len(self.active_connections)
         # 使用列表推导式过滤活跃连接，更高效
         alive_connections = deque([

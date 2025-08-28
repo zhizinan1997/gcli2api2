@@ -202,7 +202,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         log.info("OAuth认证服务关闭中...")
-        # 新架构下，OAuth服务器由认证流程自动管理，无需手动清理
+        # OAuth服务器由认证流程自动管理，无需手动清理
         log.info("OAuth认证服务已关闭")
 
 # 注册 lifespan 处理器
