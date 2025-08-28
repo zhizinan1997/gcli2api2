@@ -11,7 +11,8 @@ from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
     get_thinking_budget,
-    should_include_thoughts
+    should_include_thoughts,
+    get_compatibility_mode_enabled
 )
 
 from log import log
@@ -29,18 +30,24 @@ def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str,
     contents = []
     system_instructions = []
     
+    # 检查是否启用兼容性模式
+    compatibility_mode = get_compatibility_mode_enabled()
+    
     # 处理对话中的每条消息
-    # 第一阶段：收集连续的system消息到system_instruction中
-    collecting_system = True
+    # 第一阶段：收集连续的system消息到system_instruction中（除非在兼容性模式下）
+    collecting_system = True if not compatibility_mode else False
     
     for message in openai_request.messages:
         role = message.role
-        log.debug(f"Processing message: role={role}, content={getattr(message, 'content', None)}")
+        log.debug(f"Processing message: role={role}, content={getattr(message, 'content', None)}, compatibility_mode={compatibility_mode}")
         
         # 处理系统消息
         if role == "system":
-            if collecting_system:
-                # 仍在收集连续的system消息
+            if compatibility_mode:
+                # 兼容性模式：所有system消息转换为user消息
+                role = "user"
+            elif collecting_system:
+                # 正常模式：仍在收集连续的system消息
                 if isinstance(message.content, str):
                     system_instructions.append(message.content)
                 elif isinstance(message.content, list):
@@ -50,7 +57,7 @@ def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str,
                             system_instructions.append(part["text"])
                 continue
             else:
-                # 后续的system消息转换为user消息
+                # 正常模式：后续的system消息转换为user消息
                 role = "user"
         else:
             # 遇到非system消息，停止收集system消息
@@ -128,12 +135,12 @@ def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str,
         "model": get_base_model_name(openai_request.model)
     }
     
-    # 如果有系统消息，添加system_instruction
-    if system_instructions:
+    # 如果有系统消息且未启用兼容性模式，添加system_instruction
+    if system_instructions and not compatibility_mode:
         combined_system_instruction = "\n\n".join(system_instructions)
         request_payload["system_instruction"] = combined_system_instruction
     
-    log.debug(f"Final request payload contents count: {len(contents)}, system_instruction: {bool(system_instructions)}")
+    log.debug(f"Final request payload contents count: {len(contents)}, system_instruction: {bool(system_instructions and not compatibility_mode)}, compatibility_mode: {compatibility_mode}")
     
     # 为thinking模型添加thinking配置
     thinking_budget = get_thinking_budget(openai_request.model)

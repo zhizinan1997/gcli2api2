@@ -482,3 +482,20 @@ def get_auto_load_env_creds() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
     
     return bool(get_config_value("auto_load_env_creds", False))
+
+def get_compatibility_mode_enabled() -> bool:
+    """
+    Get compatibility mode setting.
+    
+    兼容性模式：启用后所有system消息全部转换成user，停用system_instructions。
+    该选项可能会降低模型理解能力，但是能避免流式空回的情况。
+    
+    Environment variable: COMPATIBILITY_MODE
+    TOML config key: compatibility_mode_enabled
+    Default: True
+    """
+    env_value = os.getenv("COMPATIBILITY_MODE")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+    
+    return bool(get_config_value("compatibility_mode_enabled", True))

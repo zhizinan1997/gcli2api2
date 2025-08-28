@@ -116,6 +116,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
     except Exception as e:
         return _create_error_response(str(e), 500)
 
+    # 预序列化payload，避免重试时重复序列化
     final_post_data = json.dumps(final_payload)
     proxy = get_proxy_config()
 
@@ -136,14 +137,16 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     resp = await stream_ctx.__aenter__()
                     
                     if resp.status_code == 429:
-                        # 记录429错误
+                        # 记录429错误，限制响应内容大小
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
                             try:
-                                response_content = await resp.aread()
-                                if isinstance(response_content, bytes):
-                                    response_content = response_content.decode('utf-8', errors='ignore')
+                                content_bytes = await resp.aread()
+                                if isinstance(content_bytes, bytes):
+                                    # 限制响应内容最大1KB，减少内存占用
+                                    content_bytes = content_bytes[:1024]
+                                    response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
                             await credential_manager.record_error(current_file, 429, response_content)
@@ -161,10 +164,11 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                             if credential_manager:
                                 # 429错误时强制轮换凭证，不增加调用计数
                                 await credential_manager._force_rotate_credential()
-                                # 重新获取凭证和headers（凭证可能已轮换）
+                                # 重新获取凭证和headers（凭证可能已轮换），复用原始payload
                                 new_creds, _ = await credential_manager.get_credentials_and_project()
-                                headers, final_payload = await _prepare_request_headers_and_payload(payload, new_creds, credential_manager)
-                                final_post_data = json.dumps(final_payload)
+                                new_headers, updated_payload = await _prepare_request_headers_and_payload(payload, new_creds, credential_manager)
+                                headers = new_headers
+                                final_post_data = json.dumps(updated_payload)
                             await asyncio.sleep(retry_interval)
                             continue  # 跳出内层处理，继续外层循环重试
                         else:
@@ -203,19 +207,23 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     )
                     
                     if resp.status_code == 429:
-                        # 记录429错误
+                        # 记录429错误，限制响应内容大小
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
                             try:
                                 if hasattr(resp, 'content'):
-                                    response_content = resp.content
-                                    if isinstance(response_content, bytes):
-                                        response_content = response_content.decode('utf-8', errors='ignore')
+                                    content = resp.content
+                                    if isinstance(content, bytes):
+                                        # 限制响应内容最大1KB，减少内存占用
+                                        content = content[:1024]
+                                        response_content = content.decode('utf-8', errors='ignore')
                                 else:
-                                    response_content = await resp.aread()
-                                    if isinstance(response_content, bytes):
-                                        response_content = response_content.decode('utf-8', errors='ignore')
+                                    content_bytes = await resp.aread()
+                                    if isinstance(content_bytes, bytes):
+                                        # 限制响应内容最大1KB，减少内存占用
+                                        content_bytes = content_bytes[:1024]
+                                        response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
                             await credential_manager.record_error(current_file, 429, response_content)
@@ -226,10 +234,11 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                             if credential_manager:
                                 # 429错误时强制轮换凭证，不增加调用计数
                                 await credential_manager._force_rotate_credential()
-                                # 重新获取凭证和headers（凭证可能已轮换）
+                                # 重新获取凭证和headers（凭证可能已轮换），复用原始payload
                                 new_creds, _ = await credential_manager.get_credentials_and_project()
-                                headers, final_payload = await _prepare_request_headers_and_payload(payload, new_creds, credential_manager)
-                                final_post_data = json.dumps(final_payload)
+                                new_headers, updated_payload = await _prepare_request_headers_and_payload(payload, new_creds, credential_manager)
+                                headers = new_headers
+                                final_post_data = json.dumps(updated_payload)
                             await asyncio.sleep(retry_interval)
                             continue
                         else:
@@ -272,12 +281,14 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
             current_file = credential_manager.get_current_file_path() if credential_manager else None
             log.debug(f"[STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
             
-            # 尝试获取响应内容用于详细错误显示
+            # 尝试获取响应内容用于详细错误显示，限制大小
             response_content = ""
             try:
-                response_content = await resp.aread()
-                if isinstance(response_content, bytes):
-                    response_content = response_content.decode('utf-8', errors='ignore')
+                content_bytes = await resp.aread()
+                if isinstance(content_bytes, bytes):
+                    # 限制响应内容最大1KB，减少内存占用
+                    content_bytes = content_bytes[:1024]
+                    response_content = content_bytes.decode('utf-8', errors='ignore')
             except Exception as e:
                 log.debug(f"[STREAMING] Failed to read response content for error analysis: {e}")
                 response_content = ""
@@ -322,6 +333,7 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
     # 正常流式响应处理，确保资源在流结束时被清理
     async def managed_stream_generator():
         success_recorded = False
+        managed_stream_generator._chunk_count = 0  # 初始化chunk计数器
         try:
             async for chunk in resp.aiter_lines():
                 if not chunk or not chunk.startswith('data: '):
@@ -346,6 +358,13 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
                         data = obj["response"]
                         yield f"data: {json.dumps(data, separators=(',',':'))}\n\n".encode()
                         await asyncio.sleep(0)  # 让其他协程有机会运行
+                        
+                        # 定期释放内存（每100个chunk）
+                        if hasattr(managed_stream_generator, '_chunk_count'):
+                            managed_stream_generator._chunk_count += 1
+                            if managed_stream_generator._chunk_count % 100 == 0:
+                                import gc
+                                gc.collect()
                     else:
                         yield f"data: {json.dumps(obj, separators=(',',':'))}\n\n".encode()
                 except json.JSONDecodeError:
@@ -408,17 +427,21 @@ async def _handle_non_streaming_response(resp: httpx.Response, credential_manage
         current_file = credential_manager.get_current_file_path() if credential_manager else None
         log.debug(f"[NON-STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
         
-        # 获取响应内容用于详细错误显示
+        # 获取响应内容用于详细错误显示，限制大小
         response_content = ""
         try:
             if hasattr(resp, 'content'):
-                response_content = resp.content
-                if isinstance(response_content, bytes):
-                    response_content = response_content.decode('utf-8', errors='ignore')
+                content = resp.content
+                if isinstance(content, bytes):
+                    # 限制响应内容最大1KB，减少内存占用
+                    content = content[:1024]
+                    response_content = content.decode('utf-8', errors='ignore')
             else:
-                response_content = await resp.aread()
-                if isinstance(response_content, bytes):
-                    response_content = response_content.decode('utf-8', errors='ignore')
+                content_bytes = await resp.aread()
+                if isinstance(content_bytes, bytes):
+                    # 限制响应内容最大1KB，减少内存占用
+                    content_bytes = content_bytes[:1024]
+                    response_content = content_bytes.decode('utf-8', errors='ignore')
         except Exception as e:
             log.debug(f"[NON-STREAMING] Failed to read response content for error analysis: {e}")
             response_content = ""
