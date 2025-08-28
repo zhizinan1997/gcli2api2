@@ -1,6 +1,5 @@
 """
-Memory Manager - 内存使用监控和控制系统
-强制控制整体内存占用在指定限制以下
+Memory Manager - 内存监控和控制系统
 """
 import gc
 import psutil
@@ -47,7 +46,7 @@ class DisabledMemoryManager:
     
     def get_memory_usage(self) -> Dict[str, float]:
         """返回空的内存使用情况"""
-        return {'rss_mb': 0, 'vms_mb': 0, 'usage_percent': 0, 'limit_mb': 100, 'available_mb': 100, 'peak_mb': 0}
+        return {'rss_mb': 0, 'usage_percent': 0, 'limit_mb': 100, 'available_mb': 100, 'peak_mb': 0}
     
     def is_memory_pressure(self) -> bool:
         """始终返回False"""
@@ -176,11 +175,10 @@ class MemoryManager:
             log.warning(f"加载内存配置失败，使用默认值: {e}")
     
     def get_memory_usage(self) -> Dict[str, float]:
-        """获取当前内存使用情况"""
+        """获取当前物理内存使用情况"""
         try:
             memory_info = self.process.memory_info()
-            rss_mb = memory_info.rss / 1024 / 1024  # RSS内存(MB)
-            vms_mb = memory_info.vms / 1024 / 1024  # 虚拟内存(MB)
+            rss_mb = memory_info.rss / 1024 / 1024  # 物理内存(MB)
             
             # 更新峰值内存
             if rss_mb > self.peak_memory_mb:
@@ -188,7 +186,6 @@ class MemoryManager:
             
             return {
                 'rss_mb': rss_mb,
-                'vms_mb': vms_mb,
                 'usage_percent': rss_mb / self.config.max_memory_mb,
                 'limit_mb': self.config.max_memory_mb,
                 'available_mb': self.config.max_memory_mb - rss_mb,
@@ -196,7 +193,7 @@ class MemoryManager:
             }
         except Exception as e:
             log.error(f"获取内存使用情况失败: {e}")
-            return {'rss_mb': 0, 'vms_mb': 0, 'usage_percent': 0, 'limit_mb': self.config.max_memory_mb, 'available_mb': self.config.max_memory_mb, 'peak_mb': 0}
+            return {'rss_mb': 0, 'usage_percent': 0, 'limit_mb': self.config.max_memory_mb, 'available_mb': self.config.max_memory_mb, 'peak_mb': 0}
     
     def is_memory_pressure(self) -> bool:
         """检查是否存在内存压力"""
@@ -451,9 +448,9 @@ def register_cache_for_cleanup(name: str, cache_manager: Any):
 
 
 def get_memory_usage() -> Dict[str, float]:
-    """获取内存使用情况的便捷函数"""
+    """获取物理内存使用情况的便捷函数"""
     if not MEMORY_MONITORING_ENABLED:
-        return {'rss_mb': 0, 'vms_mb': 0, 'usage_percent': 0, 'limit_mb': 100, 'available_mb': 100, 'peak_mb': 0}
+        return {'rss_mb': 0, 'usage_percent': 0, 'limit_mb': 100, 'available_mb': 100, 'peak_mb': 0}
     return memory_manager.get_memory_usage()
 
 
