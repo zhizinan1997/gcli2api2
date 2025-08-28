@@ -95,7 +95,6 @@ fi
 if [ "$need_update" = true ]; then
     echo "正在更新包管理器..."
     ensure_dpkg_ready
-    pkg update && pkg upgrade -y
     echo "正在安装缺失的软件包: $packages_to_install"
     pkg install $packages_to_install -y
 else
