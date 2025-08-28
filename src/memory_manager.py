@@ -3,13 +3,11 @@ Memory Manager - 内存使用监控和控制系统
 强制控制整体内存占用在指定限制以下
 """
 import gc
-import os
 import psutil
-import asyncio
 import threading
 import time
 import weakref
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from threading import Lock
 
