@@ -187,29 +187,26 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 - `PASSWORD`: 通用密码，设置后覆盖上述两个（默认：pwd）
 
 **凭证配置**
-- `GOOGLE_CREDENTIALS`: Google OAuth 凭证 JSON（支持原始 JSON 或 base64 编码）
-- `GOOGLE_CREDENTIALS_2` 到 `GOOGLE_CREDENTIALS_10`: 额外的凭证（用于多凭证轮换）
+
+支持使用 `GCLI_CREDS_*` 环境变量导入多个凭证：
 
 #### 凭证环境变量使用示例
 
-**方式 1：直接传入 JSON**
+**方式 1：编号格式**
 ```bash
-export GOOGLE_CREDENTIALS='{"type":"authorized_user","client_id":"...","client_secret":"...","refresh_token":"..."}'
+export GCLI_CREDS_1='{"client_id":"your-client-id","client_secret":"your-secret","refresh_token":"your-token","token_uri":"https://oauth2.googleapis.com/token","project_id":"your-project"}'
+export GCLI_CREDS_2='{"client_id":"...","project_id":"..."}'
 ```
 
-**方式 2：Base64 编码（推荐，更安全）**
+**方式 2：项目名格式**
 ```bash
-# 将凭证文件转为 base64
-cat credential.json | base64 -w 0 > credential.b64
-# 设置环境变量
-export GOOGLE_CREDENTIALS=$(cat credential.b64)
+export GCLI_CREDS_myproject='{"client_id":"...","project_id":"myproject",...}'
+export GCLI_CREDS_project2='{"client_id":"...","project_id":"project2",...}'
 ```
 
-**方式 3：多凭证轮换**
+**启用自动加载**
 ```bash
-export GOOGLE_CREDENTIALS='{"type":"authorized_user",...}'  # 第一个凭证
-export GOOGLE_CREDENTIALS_2='{"type":"authorized_user",...}' # 第二个凭证
-export GOOGLE_CREDENTIALS_3='{"type":"authorized_user",...}' # 第三个凭证
+export AUTO_LOAD_ENV_CREDS=true  # 程序启动时自动导入环境变量凭证
 ```
 
 **Docker 使用示例**
