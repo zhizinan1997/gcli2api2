@@ -1033,12 +1033,11 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 AUTO_START_MEMORY_MONITOR=true
 
 # 内存限制配置 (可选)
-MAX_MEMORY_MB=95                    # 最大内存限制(MB)
-MEMORY_WARNING_THRESHOLD=0.8        # 警告阈值(80%)
-MEMORY_CRITICAL_THRESHOLD=0.9       # 清理阈值(90%)
-MEMORY_EMERGENCY_THRESHOLD=0.95     # 紧急阈值(95%)
-MEMORY_CHECK_INTERVAL=10            # 检查间隔(秒)</pre>
-                                
+MAX_MEMORY_MB=100                    # 最大内存限制(MB)
+MEMORY_WARNING_THRESHOLD=0.9        # 警告阈值(90%)
+MEMORY_CRITICAL_THRESHOLD=0.95       # 清理阈值(95%)
+MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
+
                                 <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 8px; margin-top: 10px; color: #721c24;">
                                     <strong>⚠️ 注意：</strong>内存监控配置需要<strong>重启服务器</strong>才能生效
                                 </div>

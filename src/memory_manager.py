@@ -30,10 +30,10 @@ MEMORY_MONITORING_ENABLED = _is_memory_monitoring_enabled()
 class MemoryConfig:
     """内存配置"""
     max_memory_mb: int = 100  # 最大内存限制(MB)
-    warning_threshold: float = 0.8  # 警告阈值(80%)
-    critical_threshold: float = 0.9  # 紧急阈值(90%)
-    check_interval: int = 10  # 检查间隔(秒)
-    gc_interval: int = 30  # GC间隔(秒)
+    warning_threshold: float = 0.85  # 警告阈值(85%)
+    critical_threshold: float = 0.95  # 紧急阈值(95%)
+    check_interval: int = 30  # 检查间隔(秒)
+    gc_interval: int = 60  # GC间隔(秒)
     emergency_cleanup_threshold: float = 0.95  # 紧急清理阈值(95%)
 
 
@@ -400,13 +400,6 @@ def register_cache_for_cleanup(name: str, cache_manager: Any):
     """注册缓存管理器的便捷函数"""
     if MEMORY_MONITORING_ENABLED:
         memory_manager.register_cache_manager(name, cache_manager)
-
-
-def force_memory_cleanup() -> Dict[str, Any]:
-    """强制内存清理的便捷函数"""
-    if not MEMORY_MONITORING_ENABLED:
-        return {'freed_mb': 0, 'before_mb': 0, 'after_mb': 0, 'cleaned_items': {}, 'cleanup_count': 0}
-    return memory_manager.force_cleanup()
 
 
 def get_memory_usage() -> Dict[str, float]:

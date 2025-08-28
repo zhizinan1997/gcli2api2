@@ -8,7 +8,6 @@ import asyncio
 import glob
 import aiofiles
 import toml
-import base64
 import time
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple, Dict, Any
@@ -25,7 +24,7 @@ from config import (
 )
 from .utils import get_user_agent, get_client_metadata
 from log import log
-from .memory_manager import register_cache_for_cleanup, check_memory_limit
+from .memory_manager import register_cache_for_cleanup
 
 def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
     """将文件路径标准化为相对于CREDENTIALS_DIR的相对路径"""

@@ -23,10 +23,9 @@ AUTO_BAN_ERROR_CODES = [400, 403]
 
 # 内存管理配置
 MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "100"))  # 最大内存限制(MB)
-MEMORY_WARNING_THRESHOLD = float(os.getenv("MEMORY_WARNING_THRESHOLD", "0.8"))  # 警告阈值
-MEMORY_CRITICAL_THRESHOLD = float(os.getenv("MEMORY_CRITICAL_THRESHOLD", "0.9"))  # 临界阈值
-MEMORY_EMERGENCY_THRESHOLD = float(os.getenv("MEMORY_EMERGENCY_THRESHOLD", "0.95"))  # 紧急阈值
-MEMORY_CHECK_INTERVAL = int(os.getenv("MEMORY_CHECK_INTERVAL", "10"))  # 检查间隔(秒)
+MEMORY_WARNING_THRESHOLD = float(os.getenv("MEMORY_WARNING_THRESHOLD", "0.90"))  # 警告阈值
+MEMORY_CRITICAL_THRESHOLD = float(os.getenv("MEMORY_CRITICAL_THRESHOLD", "0.95"))  # 临界阈值
+MEMORY_CHECK_INTERVAL = int(os.getenv("MEMORY_CHECK_INTERVAL", "30"))  # 检查间隔(秒)
 AUTO_START_MEMORY_MONITOR = os.getenv("AUTO_START_MEMORY_MONITOR", "false").lower() in ("true", "1", "yes", "on")
 
 # Default Safety Settings for Google API
