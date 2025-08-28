@@ -98,8 +98,9 @@ else
     cd ./gcli2api
 fi
 
-echo "更新项目代码..."
-git pull
+echo "强制同步项目代码，忽略本地修改..."
+git fetch --all
+git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
 echo "初始化 uv 环境..."
 uv init
