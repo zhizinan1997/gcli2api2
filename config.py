@@ -22,7 +22,7 @@ AUTO_BAN_ENABLED = os.getenv("AUTO_BAN", "false").lower() in ("true", "1", "yes"
 AUTO_BAN_ERROR_CODES = [400, 403]
 
 # 内存管理配置
-MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "95"))  # 最大内存限制(MB)
+MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "100"))  # 最大内存限制(MB)
 MEMORY_WARNING_THRESHOLD = float(os.getenv("MEMORY_WARNING_THRESHOLD", "0.8"))  # 警告阈值
 MEMORY_CRITICAL_THRESHOLD = float(os.getenv("MEMORY_CRITICAL_THRESHOLD", "0.9"))  # 临界阈值
 MEMORY_EMERGENCY_THRESHOLD = float(os.getenv("MEMORY_EMERGENCY_THRESHOLD", "0.95"))  # 紧急阈值
