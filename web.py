@@ -5,7 +5,7 @@ Main Web Integration - Integrates all routers and modules
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import all routers
@@ -92,6 +92,11 @@ app.include_router(
     prefix="",
     tags=["Web Interface"]
 )
+
+# 保活接口（仅响应 HEAD）
+@app.head("/keepalive")
+async def keepalive() -> Response:
+    return Response(status_code=200)
 
 def get_credential_manager():
     """获取全局凭证管理器实例"""
