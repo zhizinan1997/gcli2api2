@@ -1,6 +1,6 @@
 """
 Main Web Integration - Integrates all routers and modules
-根据修改指导要求，负责集合上述router并开启主服务
+集合router并开启主服务
 """
 import asyncio
 from contextlib import asynccontextmanager
