@@ -188,12 +188,13 @@ class AntiTruncationStreamProcessor:
                     yield b'data: [DONE]\n\n'
                     return
                 
-                # 最后再检查一次累积的内容（防止done标记跨chunk出现）
-                accumulated_text = ''.join(self.collected_content) if self.collected_content else ""
-                if self._check_done_marker_in_text(accumulated_text):
-                    log.info("Anti-truncation: Found [done] marker in accumulated content")
-                    yield b'data: [DONE]\n\n'
-                    return
+                # 只有在单个chunk中没有找到done标记时，才检查累积内容（防止done标记跨chunk出现）
+                if not found_done_marker:
+                    accumulated_text = ''.join(self.collected_content) if self.collected_content else ""
+                    if self._check_done_marker_in_text(accumulated_text):
+                        log.info("Anti-truncation: Found [done] marker in accumulated content")
+                        yield b'data: [DONE]\n\n'
+                        return
                 
                 # 如果没找到done标记且不是最后一次尝试，准备续传
                 if self.current_attempt < self.max_attempts:
