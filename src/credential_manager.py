@@ -9,6 +9,8 @@ import os
 import time
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple, Dict, Any
+from asyncio import Queue, Event
+from contextlib import asynccontextmanager
 
 import aiofiles
 import httpx
@@ -59,7 +61,17 @@ class CredentialManager:
     """High-performance credential manager with call-based rotation and caching."""
 
     def __init__(self, calls_per_rotation: int = None):  # Use dynamic config by default
-        self._lock = asyncio.Lock()
+        # 细粒度锁机制
+        self._read_lock = asyncio.Lock()  # 保护读操作
+        self._state_lock = asyncio.Lock()  # 保护状态修改
+        self._cache_lock = asyncio.Lock()  # 保护缓存操作
+        
+        # 写操作队列化机制
+        self._write_queue: Queue = Queue()
+        self._write_worker_running = False
+        self._write_worker_task: Optional[asyncio.Task] = None
+        self._shutdown_event = Event()
+        
         self._current_credential_index = 0
         self._credential_files: List[str] = []
         
@@ -90,12 +102,129 @@ class CredentialManager:
         self._cache_ttl = 300  # 5分钟缓存TTL
         
         self._initialized = False
+        
+        # 原子操作计数器
+        self._pending_writes = 0
+        self._readers_count = 0
+        self._readers_lock = asyncio.Lock()
+        
+        # 原子操作锁和计数器
+        self._atomic_counter = 0
+        self._atomic_lock = asyncio.Lock()
+    
+    @asynccontextmanager
+    async def _read_context(self):
+        """读操作上下文管理器"""
+        async with self._readers_lock:
+            self._readers_count += 1
+            
+        try:
+            yield
+        finally:
+            async with self._readers_lock:
+                self._readers_count -= 1
+    
+    @asynccontextmanager
+    async def _write_context(self):
+        """写操作上下文管理器 - 等待所有读操作完成"""
+        # 等待所有读者完成
+        while True:
+            async with self._readers_lock:
+                if self._readers_count == 0:
+                    break
+            await asyncio.sleep(0.01)  # 短暂等待
+        
+        # 获取写锁
+        async with self._state_lock:
+            try:
+                yield
+            finally:
+                pass
+    
+    async def _atomic_operation(self, operation_name: str, func, *args, **kwargs):
+        """原子操作包装器"""
+        async with self._atomic_lock:
+            self._atomic_counter += 1
+            operation_id = self._atomic_counter
+            log.debug(f"开始原子操作[{operation_id}]: {operation_name}")
+            
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    result = await func(*args, **kwargs)
+                else:
+                    result = func(*args, **kwargs)
+                
+                log.debug(f"完成原子操作[{operation_id}]: {operation_name}")
+                return result
+            except Exception as e:
+                log.error(f"原子操作[{operation_id}]失败: {operation_name} - {e}")
+                raise
 
+    async def _start_write_worker(self):
+        """启动写操作工作线程"""
+        if not self._write_worker_running:
+            self._write_worker_running = True
+            self._write_worker_task = asyncio.create_task(self._write_worker())
+    
+    async def _write_worker(self):
+        """写操作工作线程 - 串行化处理所有写操作"""
+        while not self._shutdown_event.is_set():
+            try:
+                # 等待写操作任务
+                timeout = 1.0  # 1秒超时，允许定期检查关闭信号
+                try:
+                    write_task = await asyncio.wait_for(
+                        self._write_queue.get(), 
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    continue  # 继续循环，检查关闭信号
+                
+                # 执行写操作
+                if write_task:
+                    await write_task["func"](*write_task["args"], **write_task["kwargs"])
+                    
+                    # 通知等待的协程
+                    if "event" in write_task:
+                        write_task["event"].set()
+                
+                # 标记任务完成
+                self._write_queue.task_done()
+                
+            except Exception as e:
+                log.error(f"写操作工作线程错误: {e}")
+        
+        log.info("写操作工作线程已停止")
+    
+    async def _queue_write_operation(self, func, *args, **kwargs) -> None:
+        """将写操作加入队列"""
+        if self._shutdown_event.is_set():
+            return
+            
+        # 创建事件用于等待完成
+        completion_event = Event()
+        
+        write_task = {
+            "func": func,
+            "args": args,
+            "kwargs": kwargs,
+            "event": completion_event
+        }
+        
+        # 加入队列
+        await self._write_queue.put(write_task)
+        
+        # 等待完成
+        await completion_event.wait()
+    
     async def initialize(self):
         """Initialize the credential manager."""
-        async with self._lock:
+        async with self._state_lock:
             if self._initialized:
                 return
+            
+            # 启动写操作工作线程
+            await self._start_write_worker()
             
             # 加载状态文件
             await self._load_state()
@@ -119,6 +248,18 @@ class CredentialManager:
 
     async def close(self):
         """Clean up resources."""
+        # 关闭写操作工作线程
+        self._shutdown_event.set()
+        if self._write_worker_task:
+            try:
+                await asyncio.wait_for(self._write_worker_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._write_worker_task.cancel()
+                try:
+                    await self._write_worker_task
+                except asyncio.CancelledError:
+                    pass
+        
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
@@ -171,8 +312,8 @@ class CredentialManager:
             log.warning(f"Failed to load state file: {e}")
             self._creds_state = {}
 
-    async def _save_state(self):
-        """保存状态到TOML文件"""
+    async def _save_state_unsafe(self):
+        """保存状态到TOML文件（不安全版本，必须在锁内调用）"""
         # 使用脏标记，只在必要时写入
         if not self._state_dirty:
             return
@@ -182,10 +323,13 @@ class CredentialManager:
             async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
                 await f.write(toml.dumps(self._creds_state))
             self._state_dirty = False  # 清除脏标记
+            log.debug("状态文件已保存")
         except Exception as e:
             log.error(f"Failed to save state file: {e}")
-
-
+    
+    async def _save_state(self):
+        """安全保存状态到TOML文件"""
+        await self._queue_write_operation(self._save_state_unsafe)
     
     def _get_cred_state(self, filename: str) -> Dict[str, Any]:
         """获取指定凭证文件的状态，使用相对路径作为键"""
@@ -232,7 +376,7 @@ class CredentialManager:
 
     async def record_error(self, filename: str, status_code: int, response_content: str = ""):
         """记录API错误码"""
-        async with self._lock:
+        async with self._write_context():
             # 使用相对路径进行状态管理
             relative_filename = _normalize_to_relative_path(filename)
             cred_state = self._get_cred_state(filename)
@@ -267,7 +411,7 @@ class CredentialManager:
 
     async def record_success(self, filename: str, api_type: str = "other"):
         """记录成功的API调用"""
-        async with self._lock:
+        async with self._write_context():
             # 使用相对路径进行状态管理
             cred_state = self._get_cred_state(filename)
             
@@ -332,7 +476,7 @@ class CredentialManager:
 
     async def get_or_fetch_user_email(self, filename: str) -> Optional[str]:
         """获取用户邮箱（优先使用缓存，如果没有则从API获取）"""
-        async with self._lock:
+        async with self._read_context():
             cred_state = self._get_cred_state(filename)
             
             # 检查是否已经有邮箱信息
@@ -342,7 +486,7 @@ class CredentialManager:
         # 从API获取邮箱
         email = await self.fetch_user_email(filename)
         if email:
-            async with self._lock:
+            async with self._write_context():
                 cred_state = self._get_cred_state(filename)
                 cred_state["user_email"] = email
                 self._state_dirty = True  # 标记状态已修改
@@ -358,12 +502,13 @@ class CredentialManager:
 
     async def set_cred_disabled(self, filename: str, disabled: bool):
         """设置凭证的禁用状态"""
-        async with self._lock:
+        async with self._write_context():
             relative_filename = _normalize_to_relative_path(filename)
             log.info(f"Setting disabled={disabled} for file: {relative_filename}")
             cred_state = self._get_cred_state(filename)
             old_disabled = cred_state.get("disabled", False)
             cred_state["disabled"] = disabled
+            self._state_dirty = True  # 标记状态已修改
             log.info(f"Updated state for {relative_filename}: {cred_state}")
             await self._save_state()
             log.info(f"State saved successfully")
@@ -561,7 +706,7 @@ class CredentialManager:
                         temp_files.append(os.path.abspath(filepath))
             
             # 在锁内快速更新文件列表
-            async with self._lock:
+            async with self._state_lock:
                 if temp_files != self._credential_files:
                     old_files = set(self._credential_files)
                     self._credential_files = temp_files
@@ -585,7 +730,7 @@ class CredentialManager:
         except Exception as e:
             log.error(f"Error in _discover_credential_files_unlocked: {e}")
             # 发生错误时，回退到带锁的方法
-            async with self._lock:
+            async with self._write_context():
                 await self._discover_credential_files()
 
     async def _load_credential_with_fallback(self, current_file: str) -> Tuple[Optional[Credentials], Optional[str]]:
@@ -600,9 +745,16 @@ class CredentialManager:
         return creds, project_id
 
     async def get_credentials(self) -> Tuple[Optional[Credentials], Optional[str]]:
-        """Get credentials with call-based rotation, caching and hot reload for performance."""
+        """获取凭证，使用原子操作保护"""
+        return await self._atomic_operation(
+            "get_credentials", 
+            self._get_credentials_internal
+        )
+    
+    async def _get_credentials_internal(self) -> Tuple[Optional[Credentials], Optional[str]]:
+        """内部获取凭证的实现"""
         # 第一阶段：快速检查缓存（减少锁持有时间）
-        async with self._lock:
+        async with self._read_context():
             current_calls_per_rotation = get_calls_per_rotation()
             
             # 检查是否可以使用缓存，并验证当前文件是否仍然可用
@@ -637,11 +789,11 @@ class CredentialManager:
             # 文件发现操作不需要锁，因为它主要是读操作
             await self._discover_credential_files_unlocked()
             # 更新扫描时间
-            async with self._lock:
+            async with self._state_lock:
                 self._last_file_scan_time = current_time
         
         # 第三阶段：获取凭证（持有锁但时间较短）
-        async with self._lock:
+        async with self._state_lock:
             current_calls_per_rotation = get_calls_per_rotation()  # 重新获取配置
             
             # 再次检查缓存（可能在文件发现过程中被其他操作更新）
@@ -681,7 +833,7 @@ class CredentialManager:
         creds, project_id = await self._load_credential_with_fallback(current_file)
         
         # 第五阶段：更新缓存（短时间持有锁）
-        async with self._lock:
+        async with self._cache_lock:
             if creds:
                 self._cached_credentials = creds
                 self._cached_project_id = project_id
@@ -749,14 +901,28 @@ class CredentialManager:
 
     async def increment_call_count(self):
         """Increment the call count for tracking rotation."""
-        async with self._lock:
+        return await self._atomic_operation(
+            "increment_call_count", 
+            self._increment_call_count_internal
+        )
+    
+    async def _increment_call_count_internal(self):
+        """增加调用计数的内部实现"""
+        async with self._state_lock:
             self._call_count += 1
             current_calls_per_rotation = get_calls_per_rotation()
             log.debug(f"Call count incremented to {self._call_count}/{current_calls_per_rotation}")
 
     async def rotate_to_next_credential(self):
         """Manually rotate to next credential (for error recovery)."""
-        async with self._lock:
+        return await self._atomic_operation(
+            "rotate_to_next_credential", 
+            self._rotate_to_next_credential_internal
+        )
+    
+    async def _rotate_to_next_credential_internal(self):
+        """轮换凭证的内部实现"""
+        async with self._write_context():
             # Invalidate cache
             self._cached_credentials = None
             self._cached_project_id = None
@@ -796,7 +962,7 @@ class CredentialManager:
         if self._onboarding_complete:
             return
         
-        async with self._lock:
+        async with self._write_context():
             # Double-check after acquiring lock
             if self._onboarding_complete:
                 return
@@ -886,8 +1052,15 @@ class CredentialManager:
         if not self._initialized:
             await self.initialize()
         
+        return await self._atomic_operation(
+            "force_refresh_credential_files", 
+            self._force_refresh_credential_files_internal
+        )
+    
+    async def _force_refresh_credential_files_internal(self):
+        """强制刷新凭证文件列表的内部实现"""
         log.info("Forcing credential files refresh")
-        async with self._lock:
+        async with self._write_context():
             # 清除缓存，强制重新加载
             self._cached_credentials = None
             self._cached_project_id = None
@@ -904,7 +1077,7 @@ class CredentialManager:
         # 如果当前没有文件，强制检查一次
         if not self._credential_files:
             log.info("No credentials found, forcing file discovery")
-            async with self._lock:
+            async with self._write_context():
                 await self._discover_credential_files()
         
         return await self.get_credentials()
