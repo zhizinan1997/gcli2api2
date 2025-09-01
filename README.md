@@ -1,8 +1,6 @@
 # GeminiCLI to API
 
-**将 Gemini 转换为 OpenAI 兼容 API 接口**
-
-专业解决方案，旨在解决 Gemini API 服务中频繁的 API 密钥中断和质量下降问题。
+**将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口**
 
 ---
 
