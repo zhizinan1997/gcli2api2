@@ -25,7 +25,6 @@ def _is_memory_monitoring_enabled() -> bool:
 # 全局开关
 MEMORY_MONITORING_ENABLED = _is_memory_monitoring_enabled()
 
-
 @dataclass
 class MemoryConfig:
     """内存配置"""
