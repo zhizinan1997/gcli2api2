@@ -50,7 +50,7 @@ class UsageStats:
         
         await self._load_stats()
         self._initialized = True
-        log.info("Usage statistics module initialized")
+        log.debug("Usage statistics module initialized")
         
         # 注册到内存管理器
         register_cache_for_cleanup("usage_stats", self)
@@ -354,13 +354,13 @@ class UsageStats:
                 if filename not in existing_files:
                     deleted_files.append(filename)
             
-            # Remove statistics for deleted files
-            for filename in deleted_files:
-                del self._stats_cache[filename]
-                self._cache_dirty = True
-                log.info(f"Removed statistics for deleted credential file: {filename}")
-            
+            # Remove statistics for deleted files (only log if files were actually deleted)
             if deleted_files:
+                for filename in deleted_files:
+                    del self._stats_cache[filename]
+                    self._cache_dirty = True
+                    log.debug(f"Removed statistics for deleted credential file: {filename}")
+                
                 log.info(f"Cleaned statistics for {len(deleted_files)} deleted credential files")
     
     async def clean_deleted_credentials(self):

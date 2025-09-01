@@ -591,9 +591,6 @@ class CredentialManager:
         
         if not self._credential_files:
             log.warning("No available credential files found")
-        else:
-            available_files = [os.path.basename(f) for f in self._credential_files]
-            log.info(f"Found {len(self._credential_files)} available credential files: {available_files}")
 
     async def _sync_state_with_files(self, current_files: List[str]):
         """同步状态文件与实际文件"""
