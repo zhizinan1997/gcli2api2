@@ -632,7 +632,7 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
             return {
                 'success': True,
                 'credentials': creds_data,
-                'file_path': file_path,
+                'file_path': os.path.basename(file_path),
                 'auto_detected_project': flow_data.get('auto_project_detection', False)
             }
             
@@ -893,7 +893,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             return {
                 'success': True,
                 'credentials': creds_data,
-                'file_path': file_path,
+                'file_path': os.path.basename(file_path),
                 'auto_detected_project': flow_data.get('auto_project_detection', False)
             }
             
@@ -946,7 +946,7 @@ def save_credentials(creds: Credentials, project_id: str) -> str:
     with open(file_path, "w", encoding='utf-8') as f:
         json.dump(creds_data, f, indent=2, ensure_ascii=False)
     
-    log.info(f"凭证已保存到: {file_path}")
+    log.info(f"凭证已保存到: {os.path.basename(file_path)}")
     return file_path
 
 
@@ -1173,11 +1173,11 @@ def save_uploaded_credential(file_content: str, original_filename: str) -> Dict[
         with open(file_path, "w", encoding='utf-8') as f:
             json.dump(creds_data, f, indent=2, ensure_ascii=False)
         
-        log.info(f"认证文件已上传保存: {file_path}")
+        log.info(f"认证文件已上传保存: {os.path.basename(file_path)}")
         
         return {
             'success': True,
-            'file_path': file_path,
+            'file_path': os.path.basename(file_path),
             'project_id': project_id
         }
         
@@ -1290,14 +1290,14 @@ def load_credentials_from_env() -> Dict[str, Any]:
                 'env_name': env_name,
                 'identifier': identifier,
                 'success': True,
-                'file_path': file_path,
+                'file_path': os.path.basename(file_path),
                 'project_id': project_id,
                 'filename': os.path.basename(file_path)
             }
             results.append(result)
             success_count += 1
             
-            log.info(f"成功从环境变量 {env_name} 保存凭证到: {file_path}")
+            log.info(f"成功从环境变量 {env_name} 保存凭证到: {os.path.basename(file_path)}")
             
         except Exception as e:
             result = {

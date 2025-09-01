@@ -545,7 +545,19 @@ class CredentialManager:
 
     async def _discover_credential_files(self):
         """Discover all credential files with hot reload support."""
-        old_files = set(self._credential_files)
+        # 获取状态文件中记录的文件列表（作为基准进行对比）
+        state_files = set()
+        if self._creds_state:
+            for key in self._creds_state.keys():
+                # 跳过usage_stats等非文件名的key
+                if not key.endswith('.usage_stats'):
+                    # 将相对路径转换为绝对路径以便对比
+                    if not os.path.isabs(key):
+                        abs_path = os.path.join(CREDENTIALS_DIR, key)
+                        state_files.add(abs_path)
+                    else:
+                        state_files.add(key)
+        
         all_files = []
         
         # Discover from directory
@@ -572,16 +584,16 @@ class CredentialManager:
         
         new_files = set(self._credential_files)
         
-        # 检测文件变化
-        if old_files != new_files:
-            added_files = new_files - old_files
-            removed_files = old_files - new_files
+        # 检测文件变化 - 与状态文件中记录的文件对比
+        if state_files != new_files:
+            added_files = new_files - state_files
+            removed_files = state_files - new_files
             
             if added_files:
-                log.info(f"发现新的可用凭证文件: {list(added_files)}")
+                log.info(f"发现新的可用凭证文件: {[os.path.basename(f) for f in added_files]}")
             
             if removed_files:
-                log.info(f"凭证文件已移除或不可用: {list(removed_files)}")
+                log.info(f"凭证文件已移除或不可用: {[os.path.basename(f) for f in removed_files]}")
                 # 如果当前使用的文件被移除，切换到下一个文件
                 if self._credential_files and self._current_credential_index >= len(self._credential_files):
                     self._current_credential_index = 0
@@ -662,20 +674,27 @@ class CredentialManager:
             # 在锁内快速更新文件列表
             async with self._state_lock:
                 if temp_files != self._credential_files:
-                    old_files = set(self._credential_files)
+                    # 获取状态文件中记录的文件列表（作为基准进行对比）
+                    state_files = set()
+                    if self._creds_state:
+                        for key in self._creds_state.keys():
+                            # 跳过usage_stats等非文件名的key
+                            if not key.endswith('.usage_stats'):
+                                state_files.add(key)
+                    
                     self._credential_files = temp_files
                     new_files = set(self._credential_files)
                     
-                    # 日志记录变化
-                    if old_files != new_files:
-                        added_files = new_files - old_files
-                        removed_files = old_files - new_files
+                    # 日志记录变化 - 与状态文件中记录的文件对比
+                    if state_files != new_files:
+                        added_files = new_files - state_files
+                        removed_files = state_files - new_files
                         
                         if added_files:
-                            log.info(f"发现新的可用凭证文件: {list(added_files)}")
+                            log.info(f"发现新的可用凭证文件: {[os.path.basename(f) for f in added_files]}")
                         
                         if removed_files:
-                            log.info(f"移除不可用凭证文件: {list(removed_files)}")
+                            log.info(f"移除不可用凭证文件: {[os.path.basename(f) for f in removed_files]}")
         
         except Exception as e:
             log.error(f"Error in _discover_credential_files_unlocked: {e}")
@@ -752,7 +771,7 @@ class CredentialManager:
         if creds:
             log.debug(f"成功加载凭证: {os.path.basename(current_file)}")
         else:
-            log.error(f"加载凭证失败: {current_file}")
+            log.error(f"加载凭证失败: {os.path.basename(current_file)}")
         
         return creds, project_id
 
@@ -903,11 +922,11 @@ class CredentialManager:
                     log.info(f"Token刷新并保存成功: {os.path.basename(file_path)}")
                         
                 except Exception as e:
-                    log.warning(f"Token刷新失败 {file_path}: {e}")
+                    log.warning(f"Token刷新失败 {os.path.basename(file_path)}: {e}")
             
             return creds, project_id
         except Exception as e:
-            log.error(f"Failed to load credentials from {file_path}: {e}")
+            log.error(f"Failed to load credentials from {os.path.basename(file_path)}: {e}")
             return None, None
 
     async def increment_call_count(self):

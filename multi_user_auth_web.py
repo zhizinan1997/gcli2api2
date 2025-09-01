@@ -149,7 +149,7 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
         else:
             # 如果需要手动项目ID或项目选择，在响应中标明
             if result.get('requires_manual_project_id'):
-                # 使用JSON响应而不是HTTPException来传递复杂数据
+                # 使用JSON响应
                 return JSONResponse(
                     status_code=400,
                     content={
