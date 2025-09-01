@@ -283,7 +283,6 @@ class CredentialManager:
         if self._creds_state:
             original_count = len(self._creds_state)
             # 只保留最近成功的凭证状态
-            current_time = time.time()
             keep_states = {}
             for filename, state in list(self._creds_state.items()):
                 if state.get("last_success") and not state.get("disabled", False):
