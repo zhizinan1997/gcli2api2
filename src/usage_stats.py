@@ -117,8 +117,8 @@ class UsageStats:
                 
                 log.debug(f"Loaded usage statistics for {len(self._stats_cache)} credential files")
                 
-                # Clean statistics for deleted credential files after loading
-                await self.clean_deleted_credentials()
+                # Clean statistics for deleted credential files after loading (call internal method to avoid recursive initialization)
+                await self._clean_deleted_credentials_internal()
                 
             else:
                 log.info("State file not found, starting with empty statistics")
@@ -338,11 +338,8 @@ class UsageStats:
         
         await self._save_stats()
     
-    async def clean_deleted_credentials(self):
-        """Clean statistics for deleted credential files."""
-        if not self._initialized:
-            await self.initialize()
-        
+    async def _clean_deleted_credentials_internal(self):
+        """Internal method to clean deleted credentials without initialization check."""
         with self._lock:
             # Get list of existing credential files
             existing_files = set()
@@ -365,6 +362,13 @@ class UsageStats:
             
             if deleted_files:
                 log.info(f"Cleaned statistics for {len(deleted_files)} deleted credential files")
+    
+    async def clean_deleted_credentials(self):
+        """Clean statistics for deleted credential files."""
+        if not self._initialized:
+            await self.initialize()
+        
+        await self._clean_deleted_credentials_internal()
     
     async def reset_stats(self, filename: str = None):
         """Reset usage statistics."""
