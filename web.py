@@ -121,15 +121,6 @@ if __name__ == "__main__":
     log.info("🔗 API端点:")
     log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
     log.info(f"   Gemini原生: http://127.0.0.1:{port}")
-    log.info("=" * 60)
-    log.info("⚡ 功能特性:")
-    log.info("   ✓ OpenAI格式兼容")
-    log.info("   ✓ Gemini原生格式")
-    log.info("   ✓ 429错误自动重试")
-    log.info("   ✓ 反截断完整输出")
-    log.info("   ✓ 凭证自动轮换")
-    log.info("   ✓ 实时管理面板")
-    log.info("=" * 60)
 
     # 配置hypercorn
     config = Config()
