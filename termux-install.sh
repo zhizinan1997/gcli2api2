@@ -52,13 +52,9 @@ ensure_dpkg_ready() {
 }
 
 
-# 更新包列表
+# 更新包列表并检查错误
 echo "正在更新包列表..."
 ensure_dpkg_ready
-apt update
-
-# 尝试更新（若检测到未签名，自动回退到官方镜像并修复 keyring）
-echo "正在检查更新..."
 apt_output=$(apt update 2>&1)
 if [ $? -ne 0 ]; then
     if echo "$apt_output" | grep -qi "is not signed"; then
