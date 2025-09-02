@@ -58,8 +58,10 @@ ensure_dpkg_ready
 apt update
 
 # 尝试更新（若检测到未签名，自动回退到官方镜像并修复 keyring）
-if ! apt update 2>&1 | tee /tmp/apt_update.log; then
-    if grep -qi "is not signed" /tmp/apt_update.log; then
+echo "正在检查更新..."
+apt_output=$(apt update 2>&1)
+if [ $? -ne 0 ]; then
+    if echo "$apt_output" | grep -qi "is not signed"; then
         echo "⚠️ 检测到仓库未签名，尝试切换到官方镜像并修复 keyring..."
         # 切换到官方镜像
         sed -i "s#${target_mirror}#${fallback_mirror}#g" "$PREFIX/etc/apt/sources.list" || true
@@ -72,10 +74,12 @@ if ! apt update 2>&1 | tee /tmp/apt_update.log; then
         ensure_dpkg_ready
         apt update
     else
-        echo "apt update 失败，日志如下："
-        sed -n '1,200p' /tmp/apt_update.log
+        echo "apt update 失败，错误信息："
+        echo "$apt_output" | head -20
         exit 1
     fi
+else
+    echo "$apt_output"
 fi
 
 echo "✅ Termux镜像设置完成！"
