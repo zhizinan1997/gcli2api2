@@ -138,11 +138,13 @@ if __name__ == "__main__":
     config.errorlog = "-"
     config.loglevel = "INFO"
     config.use_colors = True
-
-    config = Config()
-    config.bind = [f"{host}:{port}"]
-    config.accesslog = "-"
-    config.errorlog = "-"
-    config.loglevel = "INFO"
+    
+    # 设置请求体大小限制为100MB
+    config.max_request_body_size = 100 * 1024 * 1024
+    
+    # 设置连接超时
+    config.keep_alive_timeout = 300  # 5分钟
+    config.read_timeout = 300  # 5分钟读取超时
+    config.write_timeout = 300  # 5分钟写入超时
 
     asyncio.run(serve(app, config))

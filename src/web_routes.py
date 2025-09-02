@@ -9,6 +9,7 @@ import io
 import json
 import os
 import time
+import zipfile
 from collections import deque
 from typing import List, Optional
 
@@ -351,6 +352,69 @@ async def check_auth_status(project_id: str, token: str = Depends(verify_token))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
+    """从ZIP文件中提取JSON文件"""
+    try:
+        # 读取ZIP文件内容
+        zip_content = await zip_file.read()
+        
+        # 检查ZIP文件大小
+        if len(zip_content) > 50 * 1024 * 1024:  # 50MB限制
+            raise HTTPException(status_code=400, detail=f"ZIP文件过大，不能超过50MB")
+        
+        files_data = []
+        
+        with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zip_ref:
+            # 获取ZIP中的所有文件
+            file_list = zip_ref.namelist()
+            json_files = [f for f in file_list if f.endswith('.json') and not f.startswith('__MACOSX/')]
+            
+            if not json_files:
+                raise HTTPException(status_code=400, detail="ZIP文件中没有找到JSON文件")
+            
+            if len(json_files) > 10000:
+                raise HTTPException(status_code=400, detail=f"ZIP文件中的JSON文件过多，最多支持10000个，当前：{len(json_files)}个")
+
+            log.info(f"从ZIP文件 {zip_file.filename} 中找到 {len(json_files)} 个JSON文件")
+            
+            for json_filename in json_files:
+                try:
+                    # 读取JSON文件内容
+                    with zip_ref.open(json_filename) as json_file:
+                        content = json_file.read()
+                        
+                        # 检查单个文件大小
+                        if len(content) > 5 * 1024 * 1024:  # 5MB限制
+                            log.warning(f"跳过过大的文件: {json_filename} ({len(content)/1024/1024:.1f}MB)")
+                            continue
+                        
+                        try:
+                            content_str = content.decode('utf-8')
+                        except UnicodeDecodeError:
+                            log.warning(f"跳过编码错误的文件: {json_filename}")
+                            continue
+                        
+                        # 使用原始文件名（去掉路径）
+                        filename = os.path.basename(json_filename)
+                        files_data.append({
+                            'filename': filename,
+                            'content': content_str
+                        })
+                        
+                except Exception as e:
+                    log.warning(f"处理ZIP中的文件 {json_filename} 时出错: {e}")
+                    continue
+        
+        log.info(f"成功从ZIP文件中提取 {len(files_data)} 个有效的JSON文件")
+        return files_data
+        
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="无效的ZIP文件格式")
+    except Exception as e:
+        log.error(f"处理ZIP文件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"处理ZIP文件失败: {str(e)}")
+
+
 @router.post("/auth/upload")
 async def upload_credentials(files: List[UploadFile] = File(...), token: str = Depends(verify_token)):
     """批量上传认证文件"""
@@ -358,30 +422,78 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
         if not files:
             raise HTTPException(status_code=400, detail="请选择要上传的文件")
         
+        # 检查文件数量限制
+        if len(files) > 100:
+            raise HTTPException(status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个")
+        
+        # 检查总文件大小限制 (200MB)
+        max_total_size = 200 * 1024 * 1024
+        total_size = 0
+        
         files_data = []
         for file in files:
-            if not file.filename.endswith('.json'):
-                raise HTTPException(status_code=400, detail=f"文件 {file.filename} 不是JSON格式")
-            
-            content = await file.read()
-            try:
-                content_str = content.decode('utf-8')
-            except UnicodeDecodeError:
-                raise HTTPException(status_code=400, detail=f"文件 {file.filename} 编码格式不支持")
-            
-            files_data.append({
-                'filename': file.filename,
-                'content': content_str
-            })
+            # 检查文件类型：支持JSON和ZIP
+            if file.filename.endswith('.zip'):
+                # 处理ZIP文件
+                zip_files_data = await extract_json_files_from_zip(file)
+                files_data.extend(zip_files_data)
+                log.info(f"从ZIP文件 {file.filename} 中提取了 {len(zip_files_data)} 个JSON文件")
+                
+            elif file.filename.endswith('.json'):
+                # 处理单个JSON文件
+                # 检查单个文件大小 (5MB)
+                file_size = file.size if hasattr(file, 'size') and file.size else 0
+                if file_size > 5 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 过大，单个文件不能超过5MB")
+                
+                total_size += file_size
+                if total_size > max_total_size:
+                    raise HTTPException(status_code=400, detail=f"文件总大小超过限制200MB")
+                
+                # 流式读取文件内容
+                content_chunks = []
+                while True:
+                    chunk = await file.read(8192)  # 8KB chunks
+                    if not chunk:
+                        break
+                    content_chunks.append(chunk)
+                
+                content = b''.join(content_chunks)
+                try:
+                    content_str = content.decode('utf-8')
+                except UnicodeDecodeError:
+                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 编码格式不支持")
+                
+                files_data.append({
+                    'filename': file.filename,
+                    'content': content_str
+                })
+            else:
+                raise HTTPException(status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件")
         
-        result = batch_upload_credentials(files_data)
+        # 分批处理大量文件以提高稳定性
+        batch_size = 50  # 每批处理50个文件
+        all_results = []
+        total_success = 0
         
-        if result['uploaded_count'] > 0:
+        for i in range(0, len(files_data), batch_size):
+            batch_files = files_data[i:i + batch_size]
+            batch_result = batch_upload_credentials(batch_files)
+            
+            all_results.extend(batch_result['results'])
+            total_success += batch_result['uploaded_count']
+            
+            # 记录批次进度
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(files_data) + batch_size - 1) // batch_size
+            log.info(f"批次 {batch_num}/{total_batches} 完成: 成功 {batch_result['uploaded_count']}/{len(batch_files)} 个文件")
+        
+        if total_success > 0:
             return JSONResponse(content={
-                "uploaded_count": result['uploaded_count'],
-                "total_count": result['total_count'],
-                "results": result['results'],
-                "message": f"成功上传 {result['uploaded_count']}/{result['total_count']} 个文件"
+                "uploaded_count": total_success,
+                "total_count": len(files_data),
+                "results": all_results,
+                "message": f"批量上传完成: 成功 {total_success}/{len(files_data)} 个文件"
             })
         else:
             raise HTTPException(status_code=400, detail="没有文件上传成功")

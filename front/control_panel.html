@@ -850,10 +850,11 @@
                 
                 <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
                     <p>点击选择文件或拖拽文件到此区域</p>
-                    <p style="color: #666; font-size: 14px;">支持 .json 格式文件</p>
+                    <p style="color: #666; font-size: 14px;">支持 .json 和 .zip 格式文件</p>
+                    <p style="color: #888; font-size: 12px;">ZIP文件会自动解压提取其中的JSON凭证</p>
                 </div>
                 
-                <input type="file" id="fileInput" multiple accept=".json" style="display: none;" onchange="handleFileSelect(event)" />
+                <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;" onchange="handleFileSelect(event)" />
                 
                 <div id="fileListSection" class="hidden">
                     <h4>选择的文件：</h4>
@@ -1665,12 +1666,13 @@ MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
 
         function addFiles(files) {
             files.forEach(file => {
-                if (file.type === 'application/json' || file.name.endsWith('.json')) {
+                if (file.type === 'application/json' || file.name.endsWith('.json') || 
+                    file.type === 'application/zip' || file.name.endsWith('.zip')) {
                     if (!uploadSelectedFiles.find(f => f.name === file.name && f.size === file.size)) {
                         uploadSelectedFiles.push(file);
                     }
                 } else {
-                    showStatus(`文件 ${file.name} 不是有效的JSON文件`, 'error');
+                    showStatus(`文件 ${file.name} 格式不支持，只支持JSON和ZIP文件`, 'error');
                 }
             });
             
@@ -1692,10 +1694,13 @@ MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
             uploadSelectedFiles.forEach((file, index) => {
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
+                const isZip = file.name.endsWith('.zip');
+                const fileIcon = isZip ? '📦' : '📄';
+                const fileType = isZip ? ' (ZIP压缩包)' : ' (JSON文件)';
                 fileItem.innerHTML = `
                     <div>
-                        <span class="file-name">${file.name}</span>
-                        <span class="file-size">(${formatFileSize(file.size)})</span>
+                        <span class="file-name">${fileIcon} ${file.name}</span>
+                        <span class="file-size">(${formatFileSize(file.size)}${fileType})</span>
                     </div>
                     <button class="remove-btn" onclick="removeFile(${index})">删除</button>
                 `;
@@ -1725,6 +1730,22 @@ MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
                 return;
             }
 
+            // 检查文件大小
+            const totalSize = uploadSelectedFiles.reduce((sum, file) => sum + file.size, 0);
+            const maxSize = 200 * 1024 * 1024; // 200MB limit
+            if (totalSize > maxSize) {
+                showStatus(`文件总大小 ${(totalSize/1024/1024).toFixed(1)}MB 超过限制 ${maxSize/1024/1024}MB。请分批上传或删除部分文件。`, 'error');
+                return;
+            }
+            
+            // 检查单个文件大小
+            for (const file of uploadSelectedFiles) {
+                if (file.size > 5 * 1024 * 1024) {
+                    showStatus(`文件 "${file.name}" 大小 ${(file.size/1024/1024).toFixed(1)}MB 超过单文件5MB限制`, 'error');
+                    return;
+                }
+            }
+
             const progressSection = document.getElementById('uploadProgressSection');
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
@@ -1735,9 +1756,18 @@ MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
             uploadSelectedFiles.forEach(file => {
                 formData.append('files', file);
             });
+            
+            // 检查是否有ZIP文件，给用户提示
+            const hasZipFiles = uploadSelectedFiles.some(file => file.name.endsWith('.zip'));
+            if (hasZipFiles) {
+                showStatus('正在上传并解压ZIP文件...', 'info');
+            }
 
             try {
                 const xhr = new XMLHttpRequest();
+                
+                // 设置超时时间 (5分钟)
+                xhr.timeout = 300000;
                 
                 xhr.upload.onprogress = function(event) {
                     if (event.lengthComputable) {
@@ -1749,18 +1779,40 @@ MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
 
                 xhr.onload = function() {
                     if (xhr.status === 200) {
-                        const data = JSON.parse(xhr.responseText);
-                        showStatus(`成功上传 ${data.uploaded_count} 个文件`, 'success');
-                        clearFiles();
-                        progressSection.classList.add('hidden');
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            showStatus(`成功上传 ${data.uploaded_count} 个文件`, 'success');
+                            clearFiles();
+                            progressSection.classList.add('hidden');
+                        } catch (e) {
+                            showStatus('上传失败: 服务器响应格式错误', 'error');
+                        }
                     } else {
-                        const error = JSON.parse(xhr.responseText);
-                        showStatus(`上传失败: ${error.error}`, 'error');
+                        try {
+                            const error = JSON.parse(xhr.responseText);
+                            showStatus(`上传失败: ${error.detail || error.error || '未知错误'}`, 'error');
+                        } catch (e) {
+                            showStatus(`上传失败: HTTP ${xhr.status} - ${xhr.statusText || '未知错误'}`, 'error');
+                        }
                     }
                 };
 
                 xhr.onerror = function() {
-                    showStatus('上传失败：网络错误', 'error');
+                    console.error('Upload XHR error:', {
+                        readyState: xhr.readyState,
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        responseText: xhr.responseText,
+                        fileCount: uploadSelectedFiles.length,
+                        totalSize: (totalSize / 1024 / 1024).toFixed(1) + 'MB'
+                    });
+                    showStatus(`上传失败：连接中断 - 可能原因：文件过多(${uploadSelectedFiles.length}个)或网络不稳定。建议分批上传。`, 'error');
+                    progressSection.classList.add('hidden');
+                };
+                
+                xhr.ontimeout = function() {
+                    showStatus('上传失败：请求超时 - 文件处理时间过长，请减少文件数量或检查网络连接', 'error');
+                    progressSection.classList.add('hidden');
                 };
 
                 xhr.open('POST', '/auth/upload');
