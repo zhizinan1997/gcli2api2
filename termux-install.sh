@@ -21,7 +21,8 @@ else
     # 备份原始sources.list文件
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         echo "备份原始sources.list文件..."
-        cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/
+        cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.backup.$(date +%s)"
+    fi
     
     # 写入新的镜像源
     echo "写入新的镜像源配置..."
