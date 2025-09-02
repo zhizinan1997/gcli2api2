@@ -3,7 +3,8 @@ Anti-Truncation Module - Ensures complete streaming output
 根据修改指导要求，保持一个流式请求内完整输出的反截断模块
 """
 import json
-from typing import Dict, Any, AsyncGenerator
+import re
+from typing import Dict, Any, AsyncGenerator, List, Tuple
 
 from fastapi.responses import StreamingResponse
 
@@ -23,18 +24,112 @@ CONTINUATION_PROMPT = f"""请从刚才被截断的地方继续输出剩余的所
 
 现在请继续输出："""
 
+# 正则替换配置
+REGEX_REPLACEMENTS: List[Tuple[str, str, str]] = [
+    (
+        "age_pattern",  # 替换规则名称
+        r"(?:[1-9]|1[0-8])岁(?:的)?|(?:十一|十二|十三|十四|十五|十六|十七|十八|十|一|二|三|四|五|六|七|八|九)岁(?:的)?",  # 正则模式
+        ""  # 替换文本
+    ),
+    # 可在此处添加更多替换规则
+    # ("rule_name", r"pattern", "replacement"),
+]
+
+def apply_regex_replacements(text: str) -> str:
+    """
+    对文本应用正则替换规则
+    
+    Args:
+        text: 要处理的文本
+        
+    Returns:
+        处理后的文本
+    """
+    if not text:
+        return text
+    
+    processed_text = text
+    replacement_count = 0
+    
+    for rule_name, pattern, replacement in REGEX_REPLACEMENTS:
+        try:
+            # 编译正则表达式，使用IGNORECASE标志
+            regex = re.compile(pattern, re.IGNORECASE)
+            
+            # 执行替换
+            new_text, count = regex.subn(replacement, processed_text)
+            
+            if count > 0:
+                log.debug(f"Regex replacement '{rule_name}': {count} matches replaced")
+                processed_text = new_text
+                replacement_count += count
+                
+        except re.error as e:
+            log.error(f"Invalid regex pattern in rule '{rule_name}': {e}")
+            continue
+    
+    if replacement_count > 0:
+        log.info(f"Applied {replacement_count} regex replacements to text")
+    
+    return processed_text
+
+def apply_regex_replacements_to_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    对请求payload中的文本内容应用正则替换
+    
+    Args:
+        payload: 请求payload
+        
+    Returns:
+        应用替换后的payload
+    """
+    if not REGEX_REPLACEMENTS:
+        return payload
+    
+    modified_payload = payload.copy()
+    request_data = modified_payload.get("request", {})
+    
+    # 处理contents中的文本
+    contents = request_data.get("contents", [])
+    if contents:
+        new_contents = []
+        for content in contents:
+            if isinstance(content, dict):
+                new_content = content.copy()
+                parts = new_content.get("parts", [])
+                if parts:
+                    new_parts = []
+                    for part in parts:
+                        if isinstance(part, dict) and "text" in part:
+                            new_part = part.copy()
+                            new_part["text"] = apply_regex_replacements(part["text"])
+                            new_parts.append(new_part)
+                        else:
+                            new_parts.append(part)
+                    new_content["parts"] = new_parts
+                new_contents.append(new_content)
+            else:
+                new_contents.append(content)
+        
+        request_data["contents"] = new_contents
+        modified_payload["request"] = request_data
+        log.debug("Applied regex replacements to request contents")
+    
+    return modified_payload
+
 def apply_anti_truncation(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    对请求payload应用反截断处理
+    对请求payload应用反截断处理和正则替换
     在systemInstruction中添加提醒，要求模型在结束时输出DONE_MARKER标记
     
     Args:
         payload: 原始请求payload
         
     Returns:
-        添加了反截断指令的payload
+        添加了反截断指令并应用了正则替换的payload
     """
-    modified_payload = payload.copy()
+    # 首先应用正则替换
+    modified_payload = apply_regex_replacements_to_payload(payload)
     request_data = modified_payload.get("request", {})
     
     # 获取或创建systemInstruction
