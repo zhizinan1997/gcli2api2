@@ -12,6 +12,7 @@ echo "检查Termux镜像源配置..."
 
 # 检查当前镜像源是否已经是Cloudflare镜像
 target_mirror="https://packages-cf.termux.dev/apt/termux-main"
+fallback_mirror="https://packages.termux.dev/apt/termux-main"
 if [ -f "$PREFIX/etc/apt/sources.list" ] && grep -q "$target_mirror" "$PREFIX/etc/apt/sources.list"; then
     echo "✅ 镜像源已经配置为Cloudflare镜像，跳过修改"
 else
@@ -20,8 +21,7 @@ else
     # 备份原始sources.list文件
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         echo "备份原始sources.list文件..."
-        cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.backup.$(date +%Y%m%d_%H%M%S)"
-    fi
+        cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/
     
     # 写入新的镜像源
     echo "写入新的镜像源配置..."
@@ -53,10 +53,30 @@ ensure_dpkg_ready() {
 
 # 更新包列表
 echo "正在更新包列表..."
-# 更新包列表
-echo "正在更新包列表..."
 ensure_dpkg_ready
 apt update
+
+# 尝试更新（若检测到未签名，自动回退到官方镜像并修复 keyring）
+echo "正在更新包列表..."
+if ! apt update 2>&1 | tee /tmp/apt_update.log; then
+    if grep -qi "is not signed" /tmp/apt_update.log; then
+        echo "⚠️ 检测到仓库未签名，尝试切换到官方镜像并修复 keyring..."
+        # 切换到官方镜像
+        sed -i "s#${target_mirror}#${fallback_mirror}#g" "$PREFIX/etc/apt/sources.list" || true
+        # 清理列表与锁
+        rm -rf "$PREFIX/var/lib/apt/lists/"* || true
+        rm -f "$PREFIX/var/lib/dpkg/lock" "$PREFIX/var/lib/apt/lists/lock" "$PREFIX/var/cache/apt/archives/lock" || true
+        # 重新安装 termux-keyring（若已安装则强制重装）
+        apt-get install --reinstall -y termux-keyring || true
+        # 再次更新
+        ensure_dpkg_ready
+        apt update
+    else
+        echo "apt update 失败，日志如下："
+        sed -n '1,200p' /tmp/apt_update.log
+        exit 1
+    fi
+fi
 
 echo "✅ Termux镜像设置完成！"
 echo "📁 原始配置已备份到: $PREFIX/etc/apt/sources.list.backup.*"
