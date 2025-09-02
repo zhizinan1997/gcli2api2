@@ -156,3 +156,5 @@ echo "激活虚拟环境并启动服务..."
 source .venv/bin/activate
 pm2 start .venv/bin/python --name web -- web.py
 cd ..
+
+echo "✅ 安装完成！服务已启动。"
