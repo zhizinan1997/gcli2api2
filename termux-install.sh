@@ -57,7 +57,6 @@ ensure_dpkg_ready
 apt update
 
 # 尝试更新（若检测到未签名，自动回退到官方镜像并修复 keyring）
-echo "正在更新包列表..."
 if ! apt update 2>&1 | tee /tmp/apt_update.log; then
     if grep -qi "is not signed" /tmp/apt_update.log; then
         echo "⚠️ 检测到仓库未签名，尝试切换到官方镜像并修复 keyring..."
