@@ -1302,32 +1302,10 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                         <li><strong>服务器配置：</strong>主机地址、端口号</li>
                                         <li><strong>日志文件：</strong>日志文件路径</li>
                                         <li><strong>目录配置：</strong>凭证目录路径、Code Assist端点</li>
-                                        <li><strong>内存监控：</strong>所有内存监控相关配置</li>
                                     </ul>
                                 </div>
                             </div>
                             
-                            <div class="form-group">
-                                <div class="config-info" style="background-color: #e3f2fd; border: 1px solid #1976d2; color: #1565c0;">
-                                    <strong>💡 内存监控配置：</strong>
-                                    <div style="margin: 8px 0; color: #212529;">
-                                        内存监控功能默认关闭，需要通过环境变量启用：
-                                    </div>
-                                    <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 8px 0;">
-# 启用内存监控
-AUTO_START_MEMORY_MONITOR=true
-
-# 内存限制配置 (可选)
-MAX_MEMORY_MB=100                    # 最大内存限制(MB)
-MEMORY_WARNING_THRESHOLD=0.9        # 警告阈值(90%)
-MEMORY_CRITICAL_THRESHOLD=0.95       # 清理阈值(95%)
-MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
-
-                                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 8px; margin-top: 10px; color: #721c24; border-radius: 4px;">
-                                        <strong>⚠️ 注意：</strong>内存监控配置需要<strong>重启服务器</strong>才能生效
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>

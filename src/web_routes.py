@@ -133,9 +133,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# 注册WebSocket连接管理器到内存管理器
-from .memory_manager import register_cache_for_cleanup
-register_cache_for_cleanup("websocket_manager", manager)
 
 async def ensure_credential_manager_initialized():
     """确保credential manager已初始化"""

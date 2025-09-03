@@ -16,7 +16,6 @@ from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
 from .google_api_client import send_gemini_request, build_gemini_payload_from_native
-from .memory_manager import check_memory_limit, get_memory_usage
 from .openai_transfer import _extract_content_and_reasoning
 # 创建路由器
 router = APIRouter()
@@ -124,11 +123,6 @@ async def generate_content(
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
     
-    # 内存检查
-    if not check_memory_limit():
-        memory_info = get_memory_usage()
-        log.error(f"内存使用过高，拒绝请求: {memory_info['rss_mb']:.1f}MB ({memory_info['usage_percent']*100:.1f}%)")
-        raise HTTPException(status_code=503, detail="服务器内存使用过高，请稍后重试")
     
     # 获取原始请求数据
     try:
@@ -238,11 +232,6 @@ async def stream_generate_content(
     log.info(f"Request headers: {dict(request.headers)}")
     log.info(f"API key received: {api_key[:10] if api_key else None}...")
     
-    # 内存检查
-    if not check_memory_limit():
-        memory_info = get_memory_usage()
-        log.error(f"内存使用过高，拒绝流式请求: {memory_info['rss_mb']:.1f}MB ({memory_info['usage_percent']*100:.1f}%)")
-        raise HTTPException(status_code=503, detail="服务器内存使用过高，请稍后重试")
     
     # 获取原始请求数据
     try:

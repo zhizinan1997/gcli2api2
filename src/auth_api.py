@@ -22,7 +22,6 @@ from google_auth_oauthlib.flow import Flow
 
 from config import CREDENTIALS_DIR, get_config_value
 from log import log
-from .memory_manager import register_memory_cleanup
 
 # OAuth Configuration
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -68,8 +67,6 @@ def cleanup_auth_flows_for_memory():
     
     return len(auth_flows)
 
-# 注册内存清理函数
-register_memory_cleanup("auth_flows", cleanup_auth_flows_for_memory)
 
 def find_available_port(start_port: int = None) -> int:
     """动态查找可用端口"""

@@ -9,7 +9,6 @@ from typing import Dict, Any, AsyncGenerator, List, Tuple
 from fastapi.responses import StreamingResponse
 
 from log import log
-from .memory_manager import check_memory_limit
 
 # 反截断配置
 DONE_MARKER = "[done]"
@@ -194,11 +193,6 @@ class AntiTruncationStreamProcessor:
         """处理流式响应，检测并处理截断"""
         
         while self.current_attempt < self.max_attempts:
-            # 在每次尝试前检查内存限制
-            if not check_memory_limit():
-                log.warning("内存压力过大，跳过反截断处理")
-                yield b'data: [DONE]\n\n'
-                return
             self.current_attempt += 1
             
             # 构建当前请求payload

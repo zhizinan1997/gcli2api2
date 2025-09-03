@@ -13,7 +13,6 @@ import toml
 
 from config import CREDENTIALS_DIR
 from log import log
-from .memory_manager import register_cache_for_cleanup
 
 
 def _get_next_utc_7am() -> datetime:
@@ -52,8 +51,6 @@ class UsageStats:
         self._initialized = True
         log.debug("Usage statistics module initialized")
         
-        # 注册到内存管理器
-        register_cache_for_cleanup("usage_stats", self)
     
     def _normalize_filename(self, filename: str) -> str:
         """Normalize filename to relative path for consistent storage."""

@@ -25,7 +25,6 @@ from config import (
     get_auto_ban_error_codes
 )
 from log import log
-from .memory_manager import register_cache_for_cleanup
 from .utils import get_user_agent, get_client_metadata
 
 def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
@@ -237,9 +236,6 @@ class CredentialManager:
             self._http_client = httpx.AsyncClient(**client_kwargs)
             
             self._initialized = True
-            
-            # 注册到内存管理器
-            register_cache_for_cleanup("credential_manager", self)
 
     async def close(self):
         """Clean up resources."""
