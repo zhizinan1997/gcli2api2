@@ -7,10 +7,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-import httpx
 
-from config import get_proxy_config, get_oauth_proxy_url, get_googleapis_proxy_url
+from config import get_oauth_proxy_url
 from log import log
+from .httpx_client import http_client, oauth_post_async, googleapis_get_async, googleapis_post_async, metadata_get_async
 
 
 class TokenError(Exception):
@@ -67,39 +67,30 @@ class Credentials:
             'grant_type': 'refresh_token'
         }
         
-        # 获取代理配置
-        proxy_config = get_proxy_config()
-        client_kwargs = {}
-        if proxy_config:
-            client_kwargs["proxy"] = proxy_config
-        
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            try:
-                response = await client.post(
-                    self.token_endpoint,
-                    data=data,
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
-                )
-                response.raise_for_status()
-                
-                token_data = response.json()
-                self.access_token = token_data['access_token']
-                
-                if 'expires_in' in token_data:
-                    expires_in = int(token_data['expires_in'])
-                    self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-                
-                if 'refresh_token' in token_data:
-                    self.refresh_token = token_data['refresh_token']
-                
-                log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
-                
-            except httpx.HTTPStatusError as e:
-                error_msg = f"Token刷新失败: {e.response.status_code}"
-                if hasattr(e, 'response') and e.response.text:
-                    error_msg += f" - {e.response.text}"
-                log.error(error_msg)
-                raise TokenError(error_msg)
+        try:
+            response = await oauth_post_async(
+                'token',
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            response.raise_for_status()
+            
+            token_data = response.json()
+            self.access_token = token_data['access_token']
+            
+            if 'expires_in' in token_data:
+                expires_in = int(token_data['expires_in'])
+                self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            
+            if 'refresh_token' in token_data:
+                self.refresh_token = token_data['refresh_token']
+            
+            log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
+            
+        except Exception as e:
+            error_msg = f"Token刷新失败: {str(e)}"
+            log.error(error_msg)
+            raise TokenError(error_msg)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Credentials':
@@ -189,46 +180,37 @@ class Flow:
             'grant_type': 'authorization_code'
         }
         
-        # 获取代理配置
-        proxy_config = get_proxy_config()
-        client_kwargs = {}
-        if proxy_config:
-            client_kwargs["proxy"] = proxy_config
-        
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            try:
-                response = await client.post(
-                    self.token_endpoint,
-                    data=data,
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
-                )
-                response.raise_for_status()
-                
-                token_data = response.json()
-                
-                # 计算过期时间
-                expires_at = None
-                if 'expires_in' in token_data:
-                    expires_in = int(token_data['expires_in'])
-                    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-                
-                # 创建凭证对象
-                self.credentials = Credentials(
-                    access_token=token_data['access_token'],
-                    refresh_token=token_data.get('refresh_token'),
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    expires_at=expires_at
-                )
-                
-                return self.credentials
-                
-            except httpx.HTTPStatusError as e:
-                error_msg = f"获取token失败: {e.response.status_code}"
-                if hasattr(e, 'response') and e.response.text:
-                    error_msg += f" - {e.response.text}"
-                log.error(error_msg)
-                raise TokenError(error_msg)
+        try:
+            response = await oauth_post_async(
+                'token',
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            response.raise_for_status()
+            
+            token_data = response.json()
+            
+            # 计算过期时间
+            expires_at = None
+            if 'expires_in' in token_data:
+                expires_in = int(token_data['expires_in'])
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            
+            # 创建凭证对象
+            self.credentials = Credentials(
+                access_token=token_data['access_token'],
+                refresh_token=token_data.get('refresh_token'),
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                expires_at=expires_at
+            )
+            
+            return self.credentials
+            
+        except Exception as e:
+            error_msg = f"获取token失败: {str(e)}"
+            log.error(error_msg)
+            raise TokenError(error_msg)
 
 
 class ServiceAccount:
@@ -288,36 +270,27 @@ class ServiceAccount:
             'assertion': assertion
         }
         
-        # 获取代理配置
-        proxy_config = get_proxy_config()
-        client_kwargs = {}
-        if proxy_config:
-            client_kwargs["proxy"] = proxy_config
-        
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            try:
-                response = await client.post(
-                    self.token_endpoint,
-                    data=data,
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
-                )
-                response.raise_for_status()
-                
-                token_data = response.json()
-                self.access_token = token_data['access_token']
-                
-                if 'expires_in' in token_data:
-                    expires_in = int(token_data['expires_in'])
-                    self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-                
-                return self.access_token
-                
-            except httpx.HTTPStatusError as e:
-                error_msg = f"Service Account获取token失败: {e.response.status_code}"
-                if hasattr(e, 'response') and e.response.text:
-                    error_msg += f" - {e.response.text}"
-                log.error(error_msg)
-                raise TokenError(error_msg)
+        try:
+            response = await oauth_post_async(
+                'token',
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            response.raise_for_status()
+            
+            token_data = response.json()
+            self.access_token = token_data['access_token']
+            
+            if 'expires_in' in token_data:
+                expires_in = int(token_data['expires_in'])
+                self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            
+            return self.access_token
+            
+        except Exception as e:
+            error_msg = f"Service Account获取token失败: {str(e)}"
+            log.error(error_msg)
+            raise TokenError(error_msg)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any], scopes: List[str] = None) -> 'ServiceAccount':
@@ -335,44 +308,250 @@ async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
     """获取用户信息"""
     await credentials.refresh_if_needed()
     
-    googleapis_base_url = get_googleapis_proxy_url()
-    userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
-    
-    # 获取代理配置  
-    proxy_config = get_proxy_config()
-    client_kwargs = {}
-    if proxy_config:
-        client_kwargs["proxy"] = proxy_config
-    
-    async with httpx.AsyncClient(**client_kwargs) as client:
-        try:
-            response = await client.get(
-                userinfo_url,
-                headers={'Authorization': f'Bearer {credentials.access_token}'}
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            log.error(f"获取用户信息失败: {e}")
+    try:
+        response = await googleapis_get_async(
+            'oauth2/v2/userinfo',
+            headers={'Authorization': f'Bearer {credentials.access_token}'}
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        log.error(f"获取用户信息失败: {e}")
+        return None
+
+
+async def get_user_email(credentials: Credentials) -> Optional[str]:
+    """获取用户邮箱地址"""
+    try:
+        # 确保凭证有效
+        await credentials.refresh_if_needed()
+        
+        # 调用Google userinfo API获取邮箱
+        user_info = await get_user_info(credentials)
+        if user_info:
+            email = user_info.get("email")
+            if email:
+                log.info(f"成功获取邮箱地址: {email}")
+                return email
+            else:
+                log.warning(f"userinfo响应中没有邮箱信息: {user_info}")
+                return None
+        else:
+            log.warning("获取用户信息失败")
             return None
+                
+    except Exception as e:
+        log.error(f"获取用户邮箱失败: {e}")
+        return None
+
+
+async def fetch_user_email_from_file(filepath: str) -> Optional[str]:
+    """从凭证文件获取用户邮箱地址"""
+    import json
+    import os
+    
+    try:
+        # 加载凭证文件
+        if not os.path.exists(filepath):
+            log.warning(f"凭证文件不存在: {filepath}")
+            return None
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            cred_data = json.load(f)
+        
+        # 创建凭证对象
+        credentials = Credentials.from_dict(cred_data)
+        if not credentials or not credentials.access_token:
+            log.warning(f"无法加载凭证或获取访问令牌: {os.path.basename(filepath)}")
+            return None
+        
+        # 获取邮箱
+        return await get_user_email(credentials)
+                
+    except Exception as e:
+        log.error(f"从文件获取用户邮箱失败 {os.path.basename(filepath)}: {e}")
+        return None
 
 
 async def validate_token(token: str) -> Optional[Dict[str, Any]]:
     """验证访问令牌"""
-    oauth_base_url = get_oauth_proxy_url()
-    tokeninfo_url = f"{oauth_base_url.rstrip('/')}/tokeninfo"
-    
-    # 获取代理配置  
-    proxy_config = get_proxy_config()
-    client_kwargs = {}
-    if proxy_config:
-        client_kwargs["proxy"] = proxy_config
-    
-    async with httpx.AsyncClient(**client_kwargs) as client:
-        try:
-            response = await client.get(f"{tokeninfo_url}?access_token={token}")
+    try:
+        oauth_base_url = get_oauth_proxy_url()
+        tokeninfo_url = f"{oauth_base_url.rstrip('/')}/tokeninfo?access_token={token}"
+        
+        async with http_client.get_oauth_client() as client:
+            response = await client.get(tokeninfo_url)
             response.raise_for_status()
             return response.json()
-        except Exception as e:
-            log.error(f"验证令牌失败: {e}")
-            return None
+    except Exception as e:
+        log.error(f"验证令牌失败: {e}")
+        return None
+
+
+async def enable_required_apis(credentials: Credentials, project_id: str) -> bool:
+    """自动启用必需的API服务"""
+    try:
+        # 确保凭证有效
+        if credentials.is_expired() and credentials.refresh_token:
+            await credentials.refresh()
+        
+        headers = {
+            "Authorization": f"Bearer {credentials.access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "geminicli-oauth/1.0",
+        }
+        
+        # 需要启用的服务列表
+        required_services = [
+            "geminicloudassist.googleapis.com",  # Gemini Cloud Assist API
+            "cloudaicompanion.googleapis.com"    # Gemini for Google Cloud API
+        ]
+        
+        for service in required_services:
+            log.info(f"正在检查并启用服务: {service}")
+            
+            # 检查服务是否已启用
+            check_endpoint = f"serviceusage/v1/projects/{project_id}/services/{service}"
+            try:
+                check_response = await googleapis_get_async(check_endpoint, headers=headers)
+                if check_response.status_code == 200:
+                    service_data = check_response.json()
+                    if service_data.get("state") == "ENABLED":
+                        log.info(f"服务 {service} 已启用")
+                        continue
+            except Exception as e:
+                log.debug(f"检查服务状态失败，将尝试启用: {e}")
+            
+            # 启用服务
+            enable_endpoint = f"serviceusage/v1/projects/{project_id}/services/{service}:enable"
+            try:
+                enable_response = await googleapis_post_async(enable_endpoint, headers=headers, json={})
+                
+                if enable_response.status_code in [200, 201]:
+                    log.info(f"✅ 成功启用服务: {service}")
+                elif enable_response.status_code == 400:
+                    error_data = enable_response.json()
+                    if "already enabled" in error_data.get("error", {}).get("message", "").lower():
+                        log.info(f"✅ 服务 {service} 已经启用")
+                    else:
+                        log.warning(f"⚠️ 启用服务 {service} 时出现警告: {error_data}")
+                else:
+                    log.warning(f"⚠️ 启用服务 {service} 失败: {enable_response.status_code} - {enable_response.text}")
+                    
+            except Exception as e:
+                log.warning(f"⚠️ 启用服务 {service} 时发生异常: {e}")
+                
+        return True
+        
+    except Exception as e:
+        log.error(f"启用API服务时发生错误: {e}")
+        return False
+
+
+async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
+    """获取用户可访问的Google Cloud项目列表"""
+    try:
+        # 确保凭证有效
+        if credentials.is_expired() and credentials.refresh_token:
+            await credentials.refresh()
+        
+        headers = {
+            "Authorization": f"Bearer {credentials.access_token}",
+            "User-Agent": "geminicli-oauth/1.0",
+        }
+        
+        # 使用v3 API的projects:search端点
+        endpoint = "cloudresourcemanager/v3/projects:search"
+        log.info(f"正在调用API: {endpoint}")
+        response = await googleapis_get_async(endpoint, headers=headers)
+        
+        log.info(f"API响应状态码: {response.status_code}")
+        if response.status_code != 200:
+            log.error(f"API响应内容: {response.text}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            projects = data.get('projects', [])
+            # 只返回活跃的项目
+            active_projects = [
+                project for project in projects 
+                if project.get('state') == 'ACTIVE'
+            ]
+            log.info(f"获取到 {len(active_projects)} 个活跃项目")
+            return active_projects
+        elif response.status_code == 403:
+            log.warning(f"没有权限访问项目列表: {response.text}")
+            # 尝试用户信息API来获取一些线索
+            try:
+                userinfo_response = await googleapis_get_async("oauth2/v2/userinfo", headers=headers)
+                if userinfo_response.status_code == 200:
+                    userinfo = userinfo_response.json()
+                    log.info(f"获取到用户信息: {userinfo.get('email')}")
+            except:
+                pass
+            return []
+        else:
+            log.warning(f"获取项目列表失败: {response.status_code} - {response.text}")
+            return []
+            
+    except Exception as e:
+        log.error(f"获取用户项目列表失败: {e}")
+        return []
+
+
+async def auto_detect_project_id() -> Optional[str]:
+    """尝试从Google Cloud环境自动检测项目ID"""
+    import subprocess
+    
+    try:
+        # 尝试从Google Cloud Metadata服务获取项目ID
+        response = await metadata_get_async(
+            "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=5.0
+        )
+        if response.status_code == 200:
+            project_id = response.text.strip()
+            log.info(f"从Google Cloud Metadata自动检测到项目ID: {project_id}")
+            return project_id
+    except Exception as e:
+        log.debug(f"无法从Metadata服务获取项目ID: {e}")
+    
+    # 尝试从gcloud配置获取默认项目
+    try:
+        result = subprocess.run(
+            ["gcloud", "config", "get-value", "project"], 
+            capture_output=True, 
+            text=True, 
+            timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            project_id = result.stdout.strip()
+            if project_id != "(unset)":
+                log.info(f"从gcloud配置自动检测到项目ID: {project_id}")
+                return project_id
+    except Exception as e:
+        log.debug(f"无法从gcloud配置获取项目ID: {e}")
+    
+    log.info("无法自动检测项目ID，将需要用户手动输入")
+    return None
+
+
+async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str]:
+    """从项目列表中选择默认项目"""
+    if not projects:
+        return None
+    
+    # 策略1：查找显示名称或项目ID包含"default"的项目
+    for project in projects:
+        display_name = project.get('displayName', '').lower()
+        project_id = project.get('projectId', '')
+        if 'default' in display_name or 'default' in project_id.lower():
+            log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
+            return project_id
+    
+    # 策略2：选择第一个项目
+    first_project = projects[0]
+    project_id = first_project.get('projectId', '')
+    log.info(f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})")
+    return project_id

@@ -6,7 +6,6 @@ import asyncio
 import gc
 import json
 
-import httpx
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 
@@ -17,13 +16,13 @@ from config import (
     get_thinking_budget,
     should_include_thoughts,
     is_search_model,
-    get_proxy_config,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
     get_retry_429_max_retries,
     get_retry_429_enabled,
     get_retry_429_interval
 )
+from .httpx_client import http_client, create_streaming_client_with_kwargs
 from log import log
 from .credential_manager import CredentialManager
 from .usage_stats import record_successful_call
@@ -119,18 +118,12 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
 
     # 预序列化payload，避免重试时重复序列化
     final_post_data = json.dumps(final_payload)
-    proxy = get_proxy_config()
 
     for attempt in range(max_retries + 1):
         try:
             if is_streaming:
-                # 流式请求处理
-                client_kwargs = {"timeout": None}
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                
-                # 创建客户端和流响应，但使用自定义的生命周期管理
-                client = httpx.AsyncClient(**client_kwargs)
+                # 流式请求处理 - 使用httpx_client模块的统一配置
+                client = create_streaming_client_with_kwargs()
                 
                 try:
                     # 使用stream方法但不在async with块中消费数据
@@ -195,12 +188,8 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     raise e
 
             else:
-                # 非流式请求处理
-                client_kwargs = {"timeout": None}
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                
-                async with httpx.AsyncClient(**client_kwargs) as client:
+                # 非流式请求处理 - 使用httpx_client模块
+                async with http_client.get_client(timeout=None) as client:
                     resp = await client.post(
                         target_url, content=final_post_data, headers=headers
                     )
@@ -256,7 +245,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
     return _create_error_response("Max retries exceeded", 429)
 
 
-def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client: httpx.AsyncClient, credential_manager: CredentialManager = None, model_name: str = "") -> StreamingResponse:
+def _handle_streaming_response_managed(resp, stream_ctx, client, credential_manager: CredentialManager = None, model_name: str = "") -> StreamingResponse:
     """Handle streaming response with complete resource lifecycle management."""
     
     # 检查HTTP错误
@@ -382,7 +371,7 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
         media_type="text/event-stream"
     )
 
-async def _handle_non_streaming_response(resp: httpx.Response, credential_manager: CredentialManager = None, model_name: str = "") -> Response:
+async def _handle_non_streaming_response(resp, credential_manager: CredentialManager = None, model_name: str = "") -> Response:
     """Handle non-streaming response from Google API."""
     if resp.status_code == 200:
         try:

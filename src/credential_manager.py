@@ -13,13 +13,13 @@ from asyncio import Queue, Event
 from contextlib import asynccontextmanager
 
 import aiofiles
-import httpx
 import toml
 
-from .google_oauth_api import Credentials
+from .google_oauth_api import Credentials, get_user_email, fetch_user_email_from_file
+from .httpx_client import http_client
 from config import (
     CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
-    get_proxy_config, get_calls_per_rotation, get_http_timeout, get_max_connections,
+    get_calls_per_rotation,
     get_auto_ban_enabled,
     get_auto_ban_error_codes
 )
@@ -69,8 +69,8 @@ class CredentialManager:
         self._onboarding_complete = False
         self._onboarding_checked = False
         
-        # HTTP client reuse
-        self._http_client: Optional[httpx.AsyncClient] = None
+        # HTTP client reuse - now managed by httpx_client module
+        self._http_client = None
         
         # TOML状态文件路径
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
@@ -218,17 +218,8 @@ class CredentialManager:
             
             await self._discover_credential_files()
             
-            # Initialize HTTP client with connection pooling and proxy support
-            proxy = get_proxy_config()
-            client_kwargs = {
-                "timeout": get_http_timeout(),
-                "limits": httpx.Limits(max_keepalive_connections=20, max_connections=get_max_connections())
-            }
-            if proxy:
-                client_kwargs["proxy"] = proxy
-            self._http_client = httpx.AsyncClient(**client_kwargs)
-            # 注册HTTP客户端到任务管理器
-            task_manager.register_resource(self._http_client)
+            # HTTP client is now managed by httpx_client module
+            # No need to initialize separately as it uses the global http_client manager
             
             self._initialized = True
             log.debug("Credential manager initialized with strict memory controls")
@@ -251,10 +242,7 @@ class CredentialManager:
                 except asyncio.CancelledError:
                     pass
         
-        # 关闭HTTP客户端
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
+        # HTTP client is managed by httpx_client module, no need to close manually
         
         log.debug("Credential manager closed successfully")
 
@@ -402,52 +390,9 @@ class CredentialManager:
 
     async def fetch_user_email(self, filename: str) -> Optional[str]:
         """获取凭证对应的用户邮箱地址"""
-        try:
-            # 加载凭证
-            creds, _ = await self._load_credentials_from_file(filename)
-            if not creds or not creds.access_token:
-                log.warning(f"无法加载凭证或获取访问令牌: {filename}")
-                return None
-            
-            # 刷新令牌如果需要
-            if creds.is_expired() and creds.refresh_token:
-                try:
-                    await creds.refresh()
-                except Exception as e:
-                    log.warning(f"刷新凭证失败 {filename}: {e}")
-                    return None
-            
-            # 调用Google userinfo API获取邮箱
-            if not self._http_client:
-                log.warning("HTTP客户端未初始化")
-                return None
-                
-            headers = {
-                "Authorization": f"Bearer {creds.access_token}",
-                "Accept": "application/json"
-            }
-            
-            response = await self._http_client.get(
-                "https://openidconnect.googleapis.com/v1/userinfo",
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                user_info = response.json()
-                email = user_info.get("email")
-                if email:
-                    log.info(f"成功获取邮箱地址: {email} for {os.path.basename(filename)}")
-                    return email
-                else:
-                    log.warning(f"userinfo响应中没有邮箱信息: {user_info}")
-                    return None
-            else:
-                log.warning(f"获取用户信息失败 {filename}: HTTP {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            log.error(f"获取用户邮箱失败 {filename}: {e}")
-            return None
+        # 使用google_oauth_api模块的函数
+        filepath = _make_standard_path(filename)
+        return await fetch_user_email_from_file(filepath)
 
     async def get_or_fetch_user_email(self, filename: str) -> Optional[str]:
         """获取用户邮箱（优先使用缓存，如果没有则从API获取）"""
@@ -1114,13 +1059,14 @@ class CredentialManager:
             }
             
             try:
-                # Use reusable HTTP client
-                resp = await self._http_client.post(
-                    f"{CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist",
-                    json=load_assist_payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
+                # Use HTTP client from httpx_client module
+                async with http_client.get_client() as client:
+                    resp = await client.post(
+                        f"{CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist",
+                        json=load_assist_payload,
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
                 load_data = resp.json()
                 
                 # Determine tier
@@ -1156,13 +1102,14 @@ class CredentialManager:
                 }
 
                 while True:
-                    onboard_resp = await self._http_client.post(
-                        f"{CODE_ASSIST_ENDPOINT}/v1internal:onboardUser",
-                        json=onboard_req_payload,
-                        headers=headers,
-                    )
-                    onboard_resp.raise_for_status()
-                    lro_data = onboard_resp.json()
+                    async with http_client.get_client() as client:
+                        onboard_resp = await client.post(
+                            f"{CODE_ASSIST_ENDPOINT}/v1internal:onboardUser",
+                            json=onboard_req_payload,
+                            headers=headers,
+                        )
+                        onboard_resp.raise_for_status()
+                        lro_data = onboard_resp.json()
 
                     if lro_data.get("done"):
                         self._onboarding_complete = True
@@ -1170,7 +1117,7 @@ class CredentialManager:
                     
                     await asyncio.sleep(5)
 
-            except httpx.HTTPStatusError as e:
+            except Exception as e:
                 error_text = e.response.text if hasattr(e, 'response') else str(e)
                 raise Exception(f"User onboarding failed. Please check your Google Cloud project permissions and try again. Error: {error_text}")
             except Exception as e:
