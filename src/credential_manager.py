@@ -15,9 +15,8 @@ from contextlib import asynccontextmanager
 import aiofiles
 import httpx
 import toml
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
 
+from .google_oauth import Credentials
 from config import (
     CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
     get_proxy_config, get_calls_per_rotation, get_http_timeout, get_max_connections,
@@ -406,14 +405,14 @@ class CredentialManager:
         try:
             # 加载凭证
             creds, _ = await self._load_credentials_from_file(filename)
-            if not creds or not creds.token:
+            if not creds or not creds.access_token:
                 log.warning(f"无法加载凭证或获取访问令牌: {filename}")
                 return None
             
             # 刷新令牌如果需要
-            if creds.expired and creds.refresh_token:
+            if creds.is_expired() and creds.refresh_token:
                 try:
-                    creds.refresh(GoogleAuthRequest())
+                    await creds.refresh()
                 except Exception as e:
                     log.warning(f"刷新凭证失败 {filename}: {e}")
                     return None
@@ -424,7 +423,7 @@ class CredentialManager:
                 return None
                 
             headers = {
-                "Authorization": f"Bearer {creds.token}",
+                "Authorization": f"Bearer {creds.access_token}",
                 "Accept": "application/json"
             }
             
@@ -885,15 +884,15 @@ class CredentialManager:
             creds_data = json.loads(content)
             
             # 更新access_token和过期时间（使用标准OAuth2字段名）
-            if creds.token:
-                creds_data["access_token"] = creds.token
+            if creds.access_token:
+                creds_data["access_token"] = creds.access_token
                 # 移除token字段避免重复
                 if "token" in creds_data:
                     del creds_data["token"]
             
-            if creds.expiry:
+            if creds.expires_at:
                 # 保存ISO格式的过期时间
-                creds_data["expiry"] = creds.expiry.isoformat()
+                creds_data["expiry"] = creds.expires_at.isoformat()
             
             # 写入队列化处理
             await self._queue_write_operation(
@@ -957,17 +956,17 @@ class CredentialManager:
                     log.warning(f"Could not parse expiry in {file_path}: {e}")
                     del creds_data["expiry"]
             
-            creds = Credentials.from_authorized_user_info(creds_data, creds_data.get("scopes"))
+            creds = Credentials.from_dict(creds_data)
             project_id = creds_data.get("project_id")
             setattr(creds, "project_id", project_id)
             
             # 智能token管理：检查是否需要刷新，如果需要则刷新并写入文件
-            should_refresh = creds.expired and creds.refresh_token
+            should_refresh = creds.is_expired() and creds.refresh_token
             
             # 调试OAuth2库的过期检查
             log.debug(f"OAuth2库过期检查 - 文件: {os.path.basename(file_path)}")
-            log.debug(f"creds.expired: {creds.expired}")
-            log.debug(f"creds.expiry: {creds.expiry}")
+            log.debug(f"creds.is_expired(): {creds.is_expired()}")
+            log.debug(f"creds.expires_at: {creds.expires_at}")
             log.debug(f"should_refresh (初始): {should_refresh}")
 
             # 如果文件中已有有效access_token，先尝试使用它
@@ -1001,8 +1000,8 @@ class CredentialManager:
                         if time_left > 300:  # 5分钟缓冲
                             # 使用文件中的access_token（优先）或token
                             file_token = creds_data.get("access_token") or creds_data.get("token")
-                            creds._token = file_token
-                            creds._expiry = file_expiry
+                            creds.access_token = file_token
+                            creds.expires_at = file_expiry
                             log.info(f"使用文件中的有效access_token，剩余时间: {int(time_left/60)}分钟")
                         else:
                             should_refresh = True
@@ -1016,7 +1015,8 @@ class CredentialManager:
             if should_refresh:
                 try:
                     log.debug(f"刷新token - 文件: {os.path.basename(file_path)}")
-                    creds.refresh(GoogleAuthRequest())
+                    # 在异步上下文中，直接调用异步刷新
+                    await creds.refresh()
                     
                     # 刷新成功后写入文件
                     await self._update_token_in_file(file_path, creds)
@@ -1096,14 +1096,14 @@ class CredentialManager:
             if self._onboarding_complete:
                 return
             
-            if creds.expired and creds.refresh_token:
+            if creds.is_expired() and creds.refresh_token:
                 try:
-                    creds.refresh(GoogleAuthRequest())
+                    await creds.refresh()
                 except Exception as e:
                     raise Exception(f"Failed to refresh credentials during onboarding: {str(e)}")
             
             headers = {
-                "Authorization": f"Bearer {creds.token}",
+                "Authorization": f"Bearer {creds.access_token}",
                 "Content-Type": "application/json",
                 "User-Agent": get_user_agent(),
             }

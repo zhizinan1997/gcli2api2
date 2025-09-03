@@ -16,10 +16,8 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
 import httpx
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 
+from .google_oauth import Credentials, Flow
 from config import CREDENTIALS_DIR, get_config_value
 from log import log
 
@@ -148,11 +146,11 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
     """自动启用必需的API服务"""
     try:
         # 确保凭证有效
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(GoogleAuthRequest())
+        if credentials.is_expired() and credentials.refresh_token:
+            await credentials.refresh()
         
         headers = {
-            "Authorization": f"Bearer {credentials.token}",
+            "Authorization": f"Bearer {credentials.access_token}",
             "Content-Type": "application/json",
             "User-Agent": "geminicli-oauth/1.0",
         }
@@ -209,11 +207,11 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
     """获取用户可访问的Google Cloud项目列表"""
     try:
         # 确保凭证有效
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(GoogleAuthRequest())
+        if credentials.is_expired() and credentials.refresh_token:
+            await credentials.refresh()
         
         headers = {
-            "Authorization": f"Bearer {credentials.token}",
+            "Authorization": f"Bearer {credentials.access_token}",
             "User-Agent": "geminicli-oauth/1.0",
         }
         
@@ -351,13 +349,12 @@ def create_auth_url(project_id: Optional[str] = None, user_session: str = None) 
             }
         }
         
-        flow = Flow.from_client_config(
-            client_config,
+        flow = Flow(
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
             scopes=SCOPES,
             redirect_uri=callback_url
         )
-        
-        flow.oauth2session.scope = SCOPES
         
         # 生成状态标识符，包含用户会话信息
         if user_session:
@@ -366,12 +363,7 @@ def create_auth_url(project_id: Optional[str] = None, user_session: str = None) 
             state = str(uuid.uuid4())
         
         # 生成认证URL
-        auth_url, _ = flow.authorization_url(
-            access_type="offline",
-            prompt="consent",
-            include_granted_scopes='true',
-            state=state
-        )
+        auth_url = flow.get_auth_url(state=state)
         
         # 严格控制认证流程数量 - 超过限制时立即清理最旧的
         if len(auth_flows) >= MAX_AUTH_FLOWS:
@@ -554,14 +546,14 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
+            credentials = await flow.exchange_code(auth_code)
+            # credentials 已经在 exchange_code 中获得
             
             # 如果需要自动检测项目ID且没有提供项目ID
             if flow_data.get('auto_project_detection', False) and not project_id:
                 log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expiry}")
+                log.info(f"使用的token: {credentials.access_token[:20]}...")
+                log.info(f"Token过期时间: {credentials.expires_at}")
                 user_projects = await get_user_projects(credentials)
                 
                 if user_projects:
@@ -615,18 +607,18 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
             creds_data = {
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "token": credentials.token,
+                "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
-                "scopes": credentials.scopes if credentials.scopes else SCOPES,
+                "scopes": SCOPES,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": project_id
             }
             
-            if credentials.expiry:
-                if credentials.expiry.tzinfo is None:
-                    expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
                 else:
-                    expiry_utc = credentials.expiry
+                    expiry_utc = credentials.expires_at
                 creds_data["expiry"] = expiry_utc.isoformat()
             
             # 清理使用过的流程
@@ -801,18 +793,18 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            log.info(f"[ASYNC] 调用flow.fetch_token...")
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
-            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.token[:20] if credentials.token else 'None'}...")
+            log.info(f"[ASYNC] 调用flow.fetch_token_async...")
+            credentials = await flow.exchange_code(auth_code)
+            # credentials 已经在 exchange_code 中获得
+            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
             
             log.info(f"[ASYNC] 检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
             
             # 如果需要自动检测项目ID且没有提供项目ID
             if flow_data.get('auto_project_detection', False) and not project_id:
                 log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expiry}")
+                log.info(f"使用的token: {credentials.access_token[:20]}...")
+                log.info(f"Token过期时间: {credentials.expires_at}")
                 user_projects = await get_user_projects(credentials)
                 
                 if user_projects:
@@ -876,18 +868,18 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             creds_data = {
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "token": credentials.token,
+                "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
-                "scopes": credentials.scopes if credentials.scopes else SCOPES,
+                "scopes": SCOPES,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": project_id
             }
             
-            if credentials.expiry:
-                if credentials.expiry.tzinfo is None:
-                    expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
                 else:
-                    expiry_utc = credentials.expiry
+                    expiry_utc = credentials.expires_at
                 creds_data["expiry"] = expiry_utc.isoformat()
             
             # 清理使用过的流程
@@ -943,18 +935,18 @@ def save_credentials(creds: Credentials, project_id: str) -> str:
     creds_data = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "token": creds.token,
+        "token": creds.access_token,
         "refresh_token": creds.refresh_token,
-        "scopes": creds.scopes if creds.scopes else SCOPES,
+        "scopes": SCOPES,
         "token_uri": "https://oauth2.googleapis.com/token",
         "project_id": project_id
     }
     
-    if creds.expiry:
-        if creds.expiry.tzinfo is None:
-            expiry_utc = creds.expiry.replace(tzinfo=timezone.utc)
+    if creds.expires_at:
+        if creds.expires_at.tzinfo is None:
+            expiry_utc = creds.expires_at.replace(tzinfo=timezone.utc)
         else:
-            expiry_utc = creds.expiry
+            expiry_utc = creds.expires_at
         creds_data["expiry"] = expiry_utc.isoformat()
     
     # 保存到文件

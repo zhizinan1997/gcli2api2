@@ -63,7 +63,7 @@ async def _handle_api_error(credential_manager: CredentialManager, status_code: 
 async def _prepare_request_headers_and_payload(payload: dict, creds, credential_manager: CredentialManager):
     """Prepare request headers and final payload."""
     headers = {
-        "Authorization": f"Bearer {creds.token}",
+        "Authorization": f"Bearer {creds.access_token}",
         "Content-Type": "application/json",
         "User-Agent": get_user_agent(),
     }
@@ -401,7 +401,9 @@ async def _handle_non_streaming_response(resp: httpx.Response, credential_manage
             if google_api_response.startswith('data: '):
                 google_api_response = google_api_response[len('data: '):]
             google_api_response = json.loads(google_api_response)
+            log.debug(f"Google API原始响应: {json.dumps(google_api_response, ensure_ascii=False)[:500]}...")
             standard_gemini_response = google_api_response.get("response")
+            log.debug(f"提取的response字段: {json.dumps(standard_gemini_response, ensure_ascii=False)[:500]}...")
             return Response(
                 content=json.dumps(standard_gemini_response),
                 status_code=200,

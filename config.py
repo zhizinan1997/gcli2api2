@@ -471,3 +471,27 @@ def get_compatibility_mode_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
     
     return bool(get_config_value("compatibility_mode_enabled", True))
+
+def get_oauth_proxy_url() -> str:
+    """
+    Get OAuth proxy URL setting.
+    
+    用于Google OAuth2认证的代理URL。
+    
+    Environment variable: OAUTH_PROXY_URL
+    TOML config key: oauth_proxy_url
+    Default: https://oauth2.googleapis.com
+    """
+    return str(get_config_value("oauth_proxy_url", "https://oauth2.googleapis.com", "OAUTH_PROXY_URL"))
+
+def get_googleapis_proxy_url() -> str:
+    """
+    Get Google APIs proxy URL setting.
+    
+    用于Google APIs调用的代理URL。
+    
+    Environment variable: GOOGLEAPIS_PROXY_URL
+    TOML config key: googleapis_proxy_url
+    Default: https://www.googleapis.com
+    """
+    return str(get_config_value("googleapis_proxy_url", "https://www.googleapis.com", "GOOGLEAPIS_PROXY_URL"))
