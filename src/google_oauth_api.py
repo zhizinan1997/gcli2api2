@@ -6,7 +6,6 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from config import get_oauth_proxy_url, get_googleapis_proxy_url
 from log import log
@@ -254,13 +253,8 @@ class ServiceAccount:
             'iat': now
         }
         
-        # 加载私钥
-        private_key_obj = load_pem_private_key(
-            self.private_key.encode('utf-8'),
-            password=None
-        )
-        
-        return jwt.encode(payload, private_key_obj, algorithm='RS256')
+        # PyJWT 2.x 可以直接使用字符串形式的私钥
+        return jwt.encode(payload, self.private_key, algorithm='RS256')
     
     async def get_access_token(self) -> str:
         """获取访问令牌"""
