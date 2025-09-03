@@ -470,7 +470,7 @@ async def get_creds_status(token: str = Depends(verify_token)):
         
         # 获取状态时不要调用_discover_credential_files，因为它会过滤被禁用的文件
         # 直接获取所有文件的状态
-        status = credential_manager.get_creds_status()
+        status = await credential_manager.get_creds_status()
         
         # 读取文件内容
         creds_info = {}
