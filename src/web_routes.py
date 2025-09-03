@@ -1061,18 +1061,19 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 credential_manager._calls_per_rotation = new_config["calls_per_rotation"]
                 hot_updated.append("calls_per_rotation")
 
+            # 2. 代理配置（部分热更新）
             if "proxy" in new_config and "proxy" not in env_locked_keys:
                 hot_updated.append("proxy")
-            
-            # 2. 日志配置（部分热更新）
+
+            # 3. 日志配置（部分热更新）
             # 注意：日志级别可以热更新，但日志文件路径需要重启
             if "log_level" in new_config and "log_level" not in env_locked_keys:
                 hot_updated.append("log_level")
             
             if "log_file" in new_config and "log_file" not in env_locked_keys:
                 restart_required.append("log_file")
-            
-            # 3. 其他可热更新的配置项
+
+            # 4. 其他可热更新的配置项
             hot_updatable_configs = [
                 "auto_ban_enabled", "auto_ban_error_codes",
                 "retry_429_enabled", "retry_429_max_retries", "retry_429_interval",
@@ -1083,13 +1084,13 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 if config_key in new_config and config_key not in env_locked_keys:
                     hot_updated.append(config_key)
             
-            # 4. 需要重启的配置项
+            # 5. 需要重启的配置项
             restart_required_configs = ["host", "port"]
             for config_key in restart_required_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
                     restart_required.append(config_key)
             
-            # 5. 密码配置（立即生效）
+            # 6. 密码配置（立即生效）
             password_configs = ["api_password", "panel_password", "password"]
             for config_key in password_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
