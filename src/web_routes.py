@@ -516,28 +516,17 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
         
         log.info(f"Performing action '{action}' on file: {filename}")
         
-        # 验证文件路径安全性
-        log.info(f"Validating file path: {repr(filename)}")
-        log.info(f"Is absolute: {os.path.isabs(filename)}")
-        log.info(f"Ends with .json: {filename.endswith('.json')}")
+        # 统一使用标准路径格式：CREDENTIALS_DIR + filename
+        from .credential_manager import _normalize_filename_only, _make_standard_path
         
-        # 如果不是绝对路径，转换为绝对路径
-        if not os.path.isabs(filename):
-            from config import CREDENTIALS_DIR
-            filename = os.path.abspath(os.path.join(CREDENTIALS_DIR, os.path.basename(filename)))
-            log.info(f"Converted to absolute path: {filename}")
+        filename_only = _normalize_filename_only(filename)
+        if not filename_only.endswith('.json'):
+            log.error(f"Invalid filename: {filename_only} (not a .json file)")
+            raise HTTPException(status_code=400, detail=f"无效的文件名: {filename_only}")
         
-        if not filename.endswith('.json'):
-            log.error(f"Invalid file path: {filename} (not a .json file)")
-            raise HTTPException(status_code=400, detail=f"无效的文件路径: {filename}")
-        
-        # 确保文件在CREDENTIALS_DIR内（安全检查）
-        from config import CREDENTIALS_DIR
-        credentials_dir_abs = os.path.abspath(CREDENTIALS_DIR)
-        filename_abs = os.path.abspath(filename)
-        if not filename_abs.startswith(credentials_dir_abs):
-            log.error(f"Security violation: file outside credentials directory: {filename}")
-            raise HTTPException(status_code=400, detail="文件路径不在允许的目录内")
+        # 使用标准路径格式
+        filename = _make_standard_path(filename)
+        log.info(f"Using standard path: {filename}")
         
         if not os.path.exists(filename):
             log.error(f"File not found: {filename}")
@@ -558,21 +547,7 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
         elif action == "delete":
             try:
                 os.remove(filename)
-                # 从状态中移除（使用相对路径作为键）
-                from .credential_manager import _normalize_to_relative_path
-                relative_filename = _normalize_to_relative_path(filename)
-                
-                # 检查并移除状态（支持新旧两种键格式）
-                state_keys_to_remove = []
-                for key in credential_manager._creds_state.keys():
-                    if key == relative_filename or (os.path.isabs(key) and _normalize_to_relative_path(key) == relative_filename):
-                        state_keys_to_remove.append(key)
-                
-                for key in state_keys_to_remove:
-                    del credential_manager._creds_state[key]
-                
-                if state_keys_to_remove:
-                    await credential_manager._save_state()
+                # 状态会在下次文件发现时自动清理，无需手动删除
                 
                 return JSONResponse(content={"message": f"已删除凭证文件 {os.path.basename(filename)}"})
             except OSError as e:
@@ -605,8 +580,6 @@ async def creds_batch_action(request: CredFileBatchActionRequest, token: str = D
         success_count = 0
         errors = []
         
-        from config import CREDENTIALS_DIR
-        
         for filename in filenames:
             try:
                 # 验证文件路径安全性
@@ -614,50 +587,27 @@ async def creds_batch_action(request: CredFileBatchActionRequest, token: str = D
                     errors.append(f"{filename}: 无效的文件类型")
                     continue
                 
-                # 构建完整路径
-                if os.path.isabs(filename):
-                    fullpath = filename
-                else:
-                    fullpath = os.path.abspath(os.path.join(CREDENTIALS_DIR, filename))
+                # 使用标准路径格式
+                from .credential_manager import _make_standard_path
+                filepath = _make_standard_path(filename)
                 
-                # 确保文件在CREDENTIALS_DIR内（安全检查）
-                credentials_dir_abs = os.path.abspath(CREDENTIALS_DIR)
-                fullpath_abs = os.path.abspath(fullpath)
-                if not fullpath_abs.startswith(credentials_dir_abs):
-                    errors.append(f"{filename}: 文件路径不在允许的目录内")
-                    continue
-                
-                if not os.path.exists(fullpath):
+                if not os.path.exists(filepath):
                     errors.append(f"{filename}: 文件不存在")
                     continue
                 
                 # 执行相应操作
                 if action == "enable":
-                    await credential_manager.set_cred_disabled(fullpath, False)
+                    await credential_manager.set_cred_disabled(filepath, False)
                     success_count += 1
                     
                 elif action == "disable":
-                    await credential_manager.set_cred_disabled(fullpath, True)
+                    await credential_manager.set_cred_disabled(filepath, True)
                     success_count += 1
                     
                 elif action == "delete":
                     try:
-                        os.remove(fullpath)
-                        # 从状态中移除（使用相对路径作为键）
-                        from .credential_manager import _normalize_to_relative_path
-                        relative_filename = _normalize_to_relative_path(fullpath)
-                        
-                        # 检查并移除状态（支持新旧两种键格式）
-                        state_keys_to_remove = []
-                        for key in credential_manager._creds_state.keys():
-                            if key == relative_filename or (os.path.isabs(key) and _normalize_to_relative_path(key) == relative_filename):
-                                state_keys_to_remove.append(key)
-                        
-                        for key in state_keys_to_remove:
-                            del credential_manager._creds_state[key]
-                        
-                        if state_keys_to_remove:
-                            await credential_manager._save_state()
+                        os.remove(filepath)
+                        # 状态会在下次文件发现时自动清理，无需手动删除
                         
                         success_count += 1
                     except OSError as e:
@@ -729,15 +679,15 @@ async def fetch_user_email(filename: str, token: str = Depends(verify_token)):
     try:
         await ensure_credential_manager_initialized()
         
-        # 构建完整路径
-        from config import CREDENTIALS_DIR
-        if not os.path.isabs(filename):
-            filepath = os.path.abspath(os.path.join(CREDENTIALS_DIR, os.path.basename(filename)))
-        else:
-            filepath = filename
+        # 使用标准路径格式
+        from .credential_manager import _normalize_filename_only, _make_standard_path
         
-        # 验证文件路径安全性
-        if not filepath.endswith('.json') or not os.path.exists(filepath):
+        filename_only = _normalize_filename_only(filename)
+        if not filename_only.endswith('.json'):
+            raise HTTPException(status_code=404, detail="无效的文件名")
+        
+        filepath = _make_standard_path(filename)
+        if not os.path.exists(filepath):
             raise HTTPException(status_code=404, detail="文件不存在")
         
         # 获取用户邮箱
