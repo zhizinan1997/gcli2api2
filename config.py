@@ -157,39 +157,6 @@ def get_calls_per_rotation() -> int:
     
     return int(get_config_value("calls_per_rotation", 100))
 
-def get_http_timeout() -> float:
-    """
-    Get HTTP timeout setting.
-    
-    Environment variable: HTTP_TIMEOUT
-    TOML config key: http_timeout
-    Default: 30.0
-    """
-    env_value = os.getenv("HTTP_TIMEOUT")
-    if env_value:
-        try:
-            return float(env_value)
-        except ValueError:
-            pass
-    
-    return float(get_config_value("http_timeout", 30.0))
-
-def get_max_connections() -> int:
-    """
-    Get max connections setting.
-    
-    Environment variable: MAX_CONNECTIONS
-    TOML config key: max_connections
-    Default: 100
-    """
-    env_value = os.getenv("MAX_CONNECTIONS")
-    if env_value:
-        try:
-            return int(env_value)
-        except ValueError:
-            pass
-    
-    return int(get_config_value("max_connections", 100))
 
 def get_auto_ban_enabled() -> bool:
     """Get auto ban enabled setting."""

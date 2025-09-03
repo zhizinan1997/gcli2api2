@@ -907,17 +907,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">每个凭证使用多少次后轮换到下一个</small>
                             </div>
                             
-                            <div class="form-group">
-                                <label for="httpTimeout">HTTP超时时间(秒):</label>
-                                <input type="number" id="httpTimeout" min="5" max="300" />
-                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP请求超时时间</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="maxConnections">最大连接数:</label>
-                                <input type="number" id="maxConnections" min="10" max="1000" />
-                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP连接池最大连接数</small>
-                            </div>
                         </div>
                         
                         <div class="card">
@@ -2653,8 +2642,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             
             // 性能配置
             setFieldValue('callsPerRotation', config.calls_per_rotation);
-            setFieldValue('httpTimeout', config.http_timeout);
-            setFieldValue('maxConnections', config.max_connections);
             
             // 429重试配置
             setCheckboxValue('retry429Enabled', config.retry_429_enabled);
@@ -2705,8 +2692,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 'autoBanEnabled': 'auto_ban_enabled',
                 'autoBanErrorCodes': 'auto_ban_error_codes',
                 'callsPerRotation': 'calls_per_rotation',
-                'httpTimeout': 'http_timeout',
-                'maxConnections': 'max_connections',
                 'retry429Enabled': 'retry_429_enabled',
                 'retry429MaxRetries': 'retry_429_max_retries',
                 'retry429Interval': 'retry_429_interval',
@@ -2743,8 +2728,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 auto_ban_error_codes: document.getElementById('autoBanErrorCodes').value || null,
                 
                 calls_per_rotation: parseInt(document.getElementById('callsPerRotation').value) || null,
-                http_timeout: parseInt(document.getElementById('httpTimeout').value) || null,
-                max_connections: parseInt(document.getElementById('maxConnections').value) || null,
                 
                 retry_429_enabled: document.getElementById('retry429Enabled').checked,
                 retry_429_max_retries: parseInt(document.getElementById('retry429MaxRetries').value) || null,
@@ -2782,8 +2765,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 'auto_ban_enabled': 'autoBanEnabled',
                 'auto_ban_error_codes': 'autoBanErrorCodes',
                 'calls_per_rotation': 'callsPerRotation',
-                'http_timeout': 'httpTimeout', 
-                'max_connections': 'maxConnections',
                 'retry_429_enabled': 'retry429Enabled',
                 'retry_429_max_retries': 'retry429MaxRetries',
                 'retry_429_interval': 'retry429Interval',

@@ -1184,17 +1184,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <small class="config-note">每个凭证使用多少次后轮换到下一个</small>
                             </div>
                             
-                            <div class="form-group">
-                                <label for="httpTimeout">HTTP超时时间(秒):</label>
-                                <input type="number" id="httpTimeout" class="config-input" min="5" max="300" />
-                                <small class="config-note">HTTP请求超时时间</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="maxConnections">最大连接数:</label>
-                                <input type="number" id="maxConnections" class="config-input" min="10" max="1000" />
-                                <small class="config-note">HTTP连接池最大连接数</small>
-                            </div>
                         </div>
                         
                         <div class="config-group">
@@ -2536,8 +2525,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             
             // 性能配置
             setConfigField('callsPerRotation', currentConfig.calls_per_rotation || 10);
-            setConfigField('httpTimeout', currentConfig.http_timeout || 30);
-            setConfigField('maxConnections', currentConfig.max_connections || 100);
             
             // 429重试配置
             document.getElementById('retry429Enabled').checked = Boolean(currentConfig.retry_429_enabled);
@@ -2594,8 +2581,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                         .map(code => parseInt(code.trim()))
                         .filter(code => !isNaN(code)),
                     calls_per_rotation: parseInt(document.getElementById('callsPerRotation').value) || 10,
-                    http_timeout: parseInt(document.getElementById('httpTimeout').value) || 30,
-                    max_connections: parseInt(document.getElementById('maxConnections').value) || 100,
                     retry_429_enabled: document.getElementById('retry429Enabled').checked,
                     retry_429_max_retries: parseInt(document.getElementById('retry429MaxRetries').value) || 20,
                     retry_429_interval: parseFloat(document.getElementById('retry429Interval').value) || 0.1,

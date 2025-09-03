@@ -840,8 +840,6 @@ async def get_config(token: str = Depends(verify_token)):
         
         # 性能配置
         current_config["calls_per_rotation"] = config.get_calls_per_rotation()
-        current_config["http_timeout"] = config.get_http_timeout()
-        current_config["max_connections"] = config.get_max_connections()
         
         # 429重试配置
         current_config["retry_429_max_retries"] = config.get_retry_429_max_retries()
@@ -916,13 +914,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["calls_per_rotation"], int) or new_config["calls_per_rotation"] < 1:
                 raise HTTPException(status_code=400, detail="凭证轮换调用次数必须是大于0的整数")
         
-        if "http_timeout" in new_config:
-            if not isinstance(new_config["http_timeout"], int) or new_config["http_timeout"] < 5:
-                raise HTTPException(status_code=400, detail="HTTP超时时间必须是大于等于5的整数")
-        
-        if "max_connections" in new_config:
-            if not isinstance(new_config["max_connections"], int) or new_config["max_connections"] < 10:
-                raise HTTPException(status_code=400, detail="最大连接数必须是大于等于10的整数")
         
         if "retry_429_max_retries" in new_config:
             if not isinstance(new_config["retry_429_max_retries"], int) or new_config["retry_429_max_retries"] < 0:
@@ -1050,7 +1041,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         
         # 支持热更新的配置项：
         # - calls_per_rotation: 凭证轮换调用次数
-        # - proxy, http_timeout, max_connections: 网络配置
+        # - proxy: 网络配置
         # - log_level: 日志级别
         # - auto_ban_enabled, auto_ban_error_codes: 自动封禁配置
         # - retry_429_enabled, retry_429_max_retries, retry_429_interval: 429重试配置
@@ -1069,37 +1060,11 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if "calls_per_rotation" in new_config and "calls_per_rotation" not in env_locked_keys:
                 credential_manager._calls_per_rotation = new_config["calls_per_rotation"]
                 hot_updated.append("calls_per_rotation")
+
+            if "proxy" in new_config and "proxy" not in env_locked_keys:
+                hot_updated.append("proxy")
             
-            # 2. 重新初始化HTTP客户端以应用网络相关配置
-            network_configs_changed = any(key in new_config and key not in env_locked_keys 
-                                        for key in ["proxy", "http_timeout", "max_connections"])
-            
-            if network_configs_changed:
-                # 重新创建HTTP客户端
-                if credential_manager._http_client:
-                    await credential_manager._http_client.aclose()
-                    
-                proxy = config.get_proxy_config()
-                client_kwargs = {
-                    "timeout": config.get_http_timeout(),
-                    "limits": __import__('httpx').Limits(
-                        max_keepalive_connections=20, 
-                        max_connections=config.get_max_connections()
-                    )
-                }
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                credential_manager._http_client = __import__('httpx').AsyncClient(**client_kwargs)
-                
-                # 记录热更新的网络配置
-                if "proxy" in new_config and "proxy" not in env_locked_keys:
-                    hot_updated.append("proxy")
-                if "http_timeout" in new_config and "http_timeout" not in env_locked_keys:
-                    hot_updated.append("http_timeout")
-                if "max_connections" in new_config and "max_connections" not in env_locked_keys:
-                    hot_updated.append("max_connections")
-            
-            # 3. 日志配置（部分热更新）
+            # 2. 日志配置（部分热更新）
             # 注意：日志级别可以热更新，但日志文件路径需要重启
             if "log_level" in new_config and "log_level" not in env_locked_keys:
                 hot_updated.append("log_level")
@@ -1107,7 +1072,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if "log_file" in new_config and "log_file" not in env_locked_keys:
                 restart_required.append("log_file")
             
-            # 4. 其他可热更新的配置项
+            # 3. 其他可热更新的配置项
             hot_updatable_configs = [
                 "auto_ban_enabled", "auto_ban_error_codes",
                 "retry_429_enabled", "retry_429_max_retries", "retry_429_interval",
@@ -1118,13 +1083,13 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 if config_key in new_config and config_key not in env_locked_keys:
                     hot_updated.append(config_key)
             
-            # 5. 需要重启的配置项
+            # 4. 需要重启的配置项
             restart_required_configs = ["host", "port"]
             for config_key in restart_required_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
                     restart_required.append(config_key)
             
-            # 6. 密码配置（立即生效）
+            # 5. 密码配置（立即生效）
             password_configs = ["api_password", "panel_password", "password"]
             for config_key in password_configs:
                 if config_key in new_config and config_key not in env_locked_keys:

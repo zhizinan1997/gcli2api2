@@ -69,9 +69,6 @@ class CredentialManager:
         self._onboarding_complete = False
         self._onboarding_checked = False
         
-        # HTTP client reuse - now managed by httpx_client module
-        self._http_client = None
-        
         # TOML状态文件路径
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
         self._state_manager = get_state_manager(self._state_file)
