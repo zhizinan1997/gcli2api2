@@ -13,6 +13,7 @@ import toml
 
 from config import CREDENTIALS_DIR
 from log import log
+from .state_manager import get_state_manager
 
 
 def _get_next_utc_7am() -> datetime:
@@ -36,6 +37,7 @@ class UsageStats:
     def __init__(self):
         self._lock = Lock()
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
+        self._state_manager = get_state_manager(self._state_file)
         self._stats_cache: Dict[str, Dict[str, Any]] = {}
         self._initialized = False
         self._cache_dirty = False  # 缓存脏标记，减少不必要的写入
@@ -136,7 +138,7 @@ class UsageStats:
             self._stats_cache = {}
     
     async def _save_stats(self):
-        """Save statistics to the state file - 直接写入文件状态中"""
+        """Save statistics to the state file using unified state manager."""
         current_time = time.time()
         
         # 使用脏标记和时间间隔控制，减少不必要的写入
@@ -144,35 +146,22 @@ class UsageStats:
             return
             
         try:
-            # Load existing state
-            state_data = {}
-            if os.path.exists(self._state_file):
-                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                state_data = toml.loads(content)
-            
-            # 直接将统计数据写入文件状态
+            # Use state manager for atomic updates
+            updates = {}
             for filename, stats in self._stats_cache.items():
-                if filename not in state_data:
-                    state_data[filename] = {}
-                
-                # 直接写入统计字段到文件状态
-                state_data[filename].update({
+                updates[filename] = {
                     "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
                     "total_calls": stats.get("total_calls", 0),
                     "next_reset_time": stats.get("next_reset_time"),
                     "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
                     "daily_limit_total": stats.get("daily_limit_total", 1500)
-                })
+                }
             
-            # Write back to file
-            os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
-            async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
-                await f.write(toml.dumps(state_data))
+            await self._state_manager.batch_update(updates)
                 
             self._cache_dirty = False  # 清除脏标记
             self._last_save_time = current_time
-            log.debug("Usage statistics saved successfully")
+            log.debug("Usage statistics saved successfully via state manager")
         except Exception as e:
             log.error(f"Failed to save usage statistics: {e}")
     

@@ -27,6 +27,7 @@ from config import (
 from log import log
 from .utils import get_user_agent, get_client_metadata
 from .task_manager import task_manager
+from .state_manager import get_state_manager
 
 def _normalize_filename_only(filepath: str) -> str:
     """提取文件名部分，统一使用文件名作为标识"""
@@ -74,6 +75,7 @@ class CredentialManager:
         
         # TOML状态文件路径
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
+        self._state_manager = get_state_manager(self._state_file)
         self._current_cred_state: Dict[str, Any] = {}
         self._current_cred_file: Optional[str] = None
         self._state_dirty = False  # 状态脏标记，减少不必要的写入
@@ -273,22 +275,12 @@ class CredentialManager:
             return
             
         try:
-            os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
-            
-            # 加载现有状态文件
-            existing_state = {}
-            if os.path.exists(self._state_file):
-                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                existing_state = toml.loads(content)
-            
             # 只更新当前文件的状态
             if self._current_cred_file and self._current_cred_state:
-                existing_state[self._current_cred_file] = self._current_cred_state
-            
-            # 写回文件
-            async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
-                await f.write(toml.dumps(existing_state))
+                await self._state_manager.update_file_state(
+                    self._current_cred_file, 
+                    self._current_cred_state
+                )
             
             self._state_dirty = False  # 清除脏标记
             log.debug(f"状态文件已保存 (仅更新文件: {self._current_cred_file})")
@@ -310,15 +302,9 @@ class CredentialManager:
         
         # 需要加载新文件的状态
         try:
-            existing_state = {}
-            if os.path.exists(self._state_file):
-                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                existing_state = toml.loads(content)
-            
             # 直接查找文件状态（使用文件名作为key）
             filename_key = _normalize_filename_only(filename)
-            file_state = existing_state.get(filename_key)
+            file_state = await self._state_manager.read_file_state(filename_key)
             
             # 如果没有找到状态，创建默认状态
             if not file_state:
@@ -336,9 +322,7 @@ class CredentialManager:
                     "daily_limit_total": 1500
                 }
                 # 立即保存新状态
-                existing_state[filename_key] = file_state
-                async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
-                    await f.write(toml.dumps(existing_state))
+                await self._state_manager.update_file_state(filename_key, file_state)
             
             # 缓存当前状态
             self._current_cred_file = filename_key
