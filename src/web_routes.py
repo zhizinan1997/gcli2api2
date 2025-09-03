@@ -47,7 +47,7 @@ class ConnectionManager:
         self.active_connections: deque = deque(maxlen=max_connections)
         self.max_connections = max_connections
         self._last_cleanup = 0
-        self._cleanup_interval = 10  # 更频繁的清理：10秒清理一次死连接
+        self._cleanup_interval = 120  # 120秒清理一次死连接
 
     async def connect(self, websocket: WebSocket):
         # 自动清理死连接
@@ -393,10 +393,6 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
         if len(files) > 100:
             raise HTTPException(status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个")
         
-        # 检查总文件大小限制 (200MB)
-        max_total_size = 200 * 1024 * 1024
-        total_size = 0
-        
         files_data = []
         for file in files:
             # 检查文件类型：支持JSON和ZIP
@@ -408,15 +404,6 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
                 
             elif file.filename.endswith('.json'):
                 # 处理单个JSON文件
-                # 检查单个文件大小 (1MB)
-                file_size = file.size if hasattr(file, 'size') and file.size else 0
-                if file_size > 1 * 1024 * 1024:
-                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 过大，单个文件不能超过1MB")
-                
-                total_size += file_size
-                if total_size > max_total_size:
-                    raise HTTPException(status_code=400, detail=f"文件总大小超过限制200MB")
-                
                 # 流式读取文件内容
                 content_chunks = []
                 while True:

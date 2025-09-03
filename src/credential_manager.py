@@ -631,10 +631,23 @@ class CredentialManager:
         
         all_files = sorted(list(set(all_files)))
         
+        # 一次性加载状态文件，避免在循环中重复读取
+        existing_state = {}
+        try:
+            if os.path.exists(self._state_file):
+                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                existing_state = toml.loads(content)
+        except Exception as e:
+            log.debug(f"Failed to load state for file filtering: {e}")
+        
         # 过滤掉被禁用的文件（移除CD机制）
         self._credential_files = []
         for filename in all_files:
-            is_disabled = await self.is_cred_disabled(filename)
+            # 直接从加载的状态中检查禁用状态，避免重复读取文件
+            relative_filename = _normalize_to_relative_path(filename)
+            file_state = existing_state.get(relative_filename, {})
+            is_disabled = file_state.get("disabled", False)
             
             if not is_disabled:
                 self._credential_files.append(filename)
