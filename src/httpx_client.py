@@ -14,9 +14,6 @@ from log import log
 class HttpxClientManager:
     """通用HTTP客户端管理器"""
     
-    def __init__(self):
-        self.proxy_config = get_proxy_config()
-    
     def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
         client_kwargs = {
@@ -24,9 +21,10 @@ class HttpxClientManager:
             **kwargs
         }
         
-        # 添加代理配置
-        if self.proxy_config:
-            client_kwargs["proxy"] = self.proxy_config
+        # 动态读取代理配置，支持热更新
+        current_proxy_config = get_proxy_config()
+        if current_proxy_config:
+            client_kwargs["proxy"] = current_proxy_config
         
         return client_kwargs
     
