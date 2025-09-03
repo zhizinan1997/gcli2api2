@@ -26,6 +26,7 @@ from config import (
 )
 from log import log
 from .utils import get_user_agent, get_client_metadata
+from .task_manager import task_manager
 
 def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
     """将文件路径标准化为相对于CREDENTIALS_DIR的相对路径"""
@@ -64,8 +65,8 @@ class CredentialManager:
         self._read_lock = asyncio.Lock()  # 保护读操作
         self._state_lock = asyncio.Lock()  # 保护状态修改
         
-        # 写操作队列化机制
-        self._write_queue: Queue = Queue()
+        # 写操作队列化机制 - 限制队列大小防止内存泄漏
+        self._write_queue: Queue = Queue(maxsize=50)  # 限制队列大小
         self._write_worker_running = False
         self._write_worker_task: Optional[asyncio.Task] = None
         self._shutdown_event = Event()
@@ -158,7 +159,10 @@ class CredentialManager:
         """启动写操作工作线程"""
         if not self._write_worker_running:
             self._write_worker_running = True
-            self._write_worker_task = asyncio.create_task(self._write_worker())
+            self._write_worker_task = task_manager.create_task(
+                self._write_worker(), 
+                name="credential_write_worker"
+            )
     
     async def _write_worker(self):
         """写操作工作线程 - 串行化处理所有写操作"""
@@ -234,14 +238,21 @@ class CredentialManager:
             if proxy:
                 client_kwargs["proxy"] = proxy
             self._http_client = httpx.AsyncClient(**client_kwargs)
+            # 注册HTTP客户端到任务管理器
+            task_manager.register_resource(self._http_client)
             
             self._initialized = True
+            log.debug("Credential manager initialized with strict memory controls")
 
     async def close(self):
         """Clean up resources."""
-        # 关闭写操作工作线程
+        log.debug("Closing credential manager...")
+        
+        # 设置关闭标志
         self._shutdown_event.set()
-        if self._write_worker_task:
+        
+        # 关闭写操作工作线程
+        if self._write_worker_task and not self._write_worker_task.done():
             try:
                 await asyncio.wait_for(self._write_worker_task, timeout=5.0)
             except asyncio.TimeoutError:
@@ -251,35 +262,12 @@ class CredentialManager:
                 except asyncio.CancelledError:
                     pass
         
+        # 关闭HTTP客户端
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
-    
-    def emergency_cleanup(self) -> Dict[str, int]:
-        """紧急内存清理"""
-        log.warning("执行凭证管理器紧急内存清理")
-        cleaned = {
-            'cache_cleared': 0,
-            'states_cleaned': 0
-        }
         
-        # 清理过期状态
-        if self._creds_state:
-            original_count = len(self._creds_state)
-            # 只保留最近成功的凭证状态
-            keep_states = {}
-            for filename, state in list(self._creds_state.items()):
-                if state.get("last_success") and not state.get("disabled", False):
-                    keep_states[filename] = state
-                    if len(keep_states) >= 5:  # 最多保留5个状态
-                        break
-            
-            self._creds_state = keep_states
-            self._state_dirty = True
-            cleaned['states_cleaned'] = original_count - len(keep_states)
-        
-        log.info(f"凭证管理器紧急清理完成: {cleaned}")
-        return cleaned
+        log.debug("Credential manager closed successfully")
 
     async def _load_state(self):
         """从TOML文件加载状态"""
@@ -346,12 +334,20 @@ class CredentialManager:
             log.info(f"Migrated creds state key from absolute to relative: {existing_key} -> {relative_filename}")
             return existing_state
         
+        # 严格控制状态字典大小 - 超过限制时立即清理
+        if len(self._creds_state) >= 50:  # 严格限制最大50个状态
+            # 删除最旧的状态（没有last_success的或最旧的）
+            oldest_key = min(self._creds_state.keys(), 
+                           key=lambda k: self._creds_state[k].get('last_success', 0))
+            del self._creds_state[oldest_key]
+            log.debug(f"Removed oldest credential state: {oldest_key}")
+        
         # 创建新状态（使用相对路径作为键）
         log.debug(f"Creating new state for {relative_filename}")
         self._creds_state[relative_filename] = {
             "error_codes": [],
             "disabled": False,
-            "last_success": None,
+            "last_success": time.time(),  # 立即设置时间戳
             "user_email": None
         }
         self._state_dirty = True  # 标记状态已修改

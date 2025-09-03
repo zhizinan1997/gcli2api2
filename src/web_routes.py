@@ -42,12 +42,12 @@ credential_manager = CredentialManager()
 # WebSocket连接管理
 
 class ConnectionManager:
-    def __init__(self, max_connections: int = 5):  # 降低最大连接数
-        # 使用弱引用和双端队列优化内存使用
+    def __init__(self, max_connections: int = 3):  # 进一步降低最大连接数
+        # 使用双端队列严格限制内存使用
         self.active_connections: deque = deque(maxlen=max_connections)
         self.max_connections = max_connections
         self._last_cleanup = 0
-        self._cleanup_interval = 30  # 30秒清理一次死连接
+        self._cleanup_interval = 10  # 更频繁的清理：10秒清理一次死连接
 
     async def connect(self, websocket: WebSocket):
         # 自动清理死连接
@@ -110,26 +110,6 @@ class ConnectionManager:
         cleaned = original_count - len(self.active_connections)
         if cleaned > 0:
             log.debug(f"清理了 {cleaned} 个死连接，剩余连接数: {len(self.active_connections)}")
-    
-    def emergency_cleanup(self) -> dict[str, int]:
-        """紧急内存清理"""
-        log.warning("执行WebSocket连接管理器紧急内存清理")
-        cleaned = {'connections_cleared': 0}
-        
-        original_count = len(self.active_connections)
-        # 先尝试正常关闭连接
-        for conn in list(self.active_connections):
-            try:
-                if hasattr(conn, 'close') and conn.client_state != WebSocketState.DISCONNECTED:
-                    asyncio.create_task(conn.close())
-            except Exception:
-                pass
-        
-        self.active_connections.clear()
-        cleaned['connections_cleared'] = original_count
-        
-        log.info(f"WebSocket连接管理器紧急清理完成: {cleaned}")
-        return cleaned
 
 manager = ConnectionManager()
 

@@ -17,6 +17,7 @@ from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
 from .google_api_client import send_gemini_request, build_gemini_payload_from_native
 from .openai_transfer import _extract_content_and_reasoning
+from .task_manager import create_managed_task
 # 创建路由器
 router = APIRouter()
 security = HTTPBearer()
@@ -398,16 +399,35 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                     return await send_gemini_request(api_payload, False, creds, cred_mgr)
                 
                 # 创建请求任务
-                response_task = asyncio.create_task(get_response())
+                response_task = create_managed_task(get_response(), name="gemini_fake_stream_request")
                 
-                # 每3秒发送一次心跳，直到收到响应
-                while not response_task.done():
-                    await asyncio.sleep(3.0)
-                    if not response_task.done():
-                        yield f"data: {json.dumps(heartbeat)}\n\n".encode()
-                
-                # 获取响应结果
-                response = await response_task
+                try:
+                    # 每3秒发送一次心跳，直到收到响应
+                    while not response_task.done():
+                        await asyncio.sleep(3.0)
+                        if not response_task.done():
+                            yield f"data: {json.dumps(heartbeat)}\n\n".encode()
+                    
+                    # 获取响应结果
+                    response = await response_task
+                    
+                except asyncio.CancelledError:
+                    # 取消任务并传播取消
+                    response_task.cancel()
+                    try:
+                        await response_task
+                    except asyncio.CancelledError:
+                        pass
+                    raise
+                except Exception as e:
+                    # 取消任务并处理其他异常
+                    response_task.cancel()
+                    try:
+                        await response_task
+                    except asyncio.CancelledError:
+                        pass
+                    log.error(f"Fake streaming request failed: {e}")
+                    raise
                 
                 # 发送实际请求
                 # response 已在上面获取

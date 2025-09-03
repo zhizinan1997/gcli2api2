@@ -266,14 +266,19 @@ class AntiTruncationStreamProcessor:
                 if chunk_content:
                     self.collected_content.append(chunk_content)
                     
-                    # 内存保护：如果收集的内容过多，强制结束
-                    if len(self.collected_content) > 100:  # 限制最大chunk数
-                        log.warning("反截断收集内容过多，强制结束以保护内存")
+                    # 严格的内存保护：限制chunk数和总内容长度
+                    total_length = sum(len(chunk) for chunk in self.collected_content)
+                    if len(self.collected_content) > 50 or total_length > 500000:  # 50个chunk或500KB
+                        log.warning(f"反截断内容超限(chunks: {len(self.collected_content)}, size: {total_length}), 强制结束")
+                        # 立即清理内容释放内存
+                        self.collected_content.clear()
                         yield b'data: [DONE]\n\n'
                         return
                 
                 # 如果找到了done标记，结束
                 if found_done_marker:
+                    # 立即清理内容释放内存
+                    self.collected_content.clear()
                     yield b'data: [DONE]\n\n'
                     return
                 
@@ -282,6 +287,8 @@ class AntiTruncationStreamProcessor:
                     accumulated_text = ''.join(self.collected_content) if self.collected_content else ""
                     if self._check_done_marker_in_text(accumulated_text):
                         log.info("Anti-truncation: Found [done] marker in accumulated content")
+                        # 立即清理内容释放内存
+                        self.collected_content.clear()
                         yield b'data: [DONE]\n\n'
                         return
                 
@@ -297,6 +304,8 @@ class AntiTruncationStreamProcessor:
                 else:
                     # 最后一次尝试，直接结束
                     log.warning("Anti-truncation: Max attempts reached, ending stream")
+                    # 立即清理内容释放内存
+                    self.collected_content.clear()
                     yield b'data: [DONE]\n\n'
                     return
                 
@@ -318,6 +327,8 @@ class AntiTruncationStreamProcessor:
                 
         # 如果所有尝试都失败了
         log.error("Anti-truncation: All attempts failed")
+        # 确保清理内容释放内存
+        self.collected_content.clear()
         yield b'data: [DONE]\n\n'
     
     def _build_current_payload(self) -> Dict[str, Any]:

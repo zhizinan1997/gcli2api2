@@ -36,8 +36,9 @@ SCOPES = [
 CALLBACK_HOST = 'localhost'
 DEFAULT_CALLBACK_PORT = int(get_config_value('oauth_callback_port', '8080', 'OAUTH_CALLBACK_PORT'))
 
-# 全局状态管理
+# 全局状态管理 - 严格限制大小
 auth_flows = {}  # 存储进行中的认证流程
+MAX_AUTH_FLOWS = 20  # 严格限制最大认证流程数
 
 def cleanup_auth_flows_for_memory():
     """清理认证流程以释放内存"""
@@ -45,7 +46,6 @@ def cleanup_auth_flows_for_memory():
     cleaned = cleanup_expired_flows()
     # 如果还是太多，强制清理一些旧的流程
     if len(auth_flows) > 10:
-        current_time = time.time()
         # 按创建时间排序，保留最新的10个
         sorted_flows = sorted(auth_flows.items(), key=lambda x: x[1].get('created_at', 0), reverse=True)
         new_auth_flows = dict(sorted_flows[:10])
@@ -372,6 +372,24 @@ def create_auth_url(project_id: Optional[str] = None, user_session: str = None) 
             include_granted_scopes='true',
             state=state
         )
+        
+        # 严格控制认证流程数量 - 超过限制时立即清理最旧的
+        if len(auth_flows) >= MAX_AUTH_FLOWS:
+            # 清理最旧的认证流程
+            oldest_state = min(auth_flows.keys(), 
+                             key=lambda k: auth_flows[k].get('created_at', 0))
+            try:
+                # 清理服务器资源
+                old_flow = auth_flows[oldest_state]
+                if old_flow.get('server'):
+                    server = old_flow['server']
+                    port = old_flow.get('callback_port')
+                    async_shutdown_server(server, port)
+            except Exception as e:
+                log.warning(f"Failed to cleanup old auth flow {oldest_state}: {e}")
+            
+            del auth_flows[oldest_state]
+            log.debug(f"Removed oldest auth flow: {oldest_state}")
         
         # 保存流程状态
         auth_flows[state] = {
@@ -985,9 +1003,7 @@ def async_shutdown_server(server, port):
 def cleanup_expired_flows():
     """清理过期的认证流程"""
     current_time = time.time()
-    
-    # 使用更短的过期时间，减少内存占用
-    EXPIRY_TIME = 600  # 10分钟过期，减少内存占用
+    EXPIRY_TIME = 600  # 10分钟过期
     
     # 直接遍历删除，避免创建额外列表
     states_to_remove = [
@@ -1041,7 +1057,7 @@ def get_auth_status(project_id: str) -> Dict[str, Any]:
 
 # 鉴权功能 - 使用更小的数据结构
 auth_tokens = {}  # 存储有效的认证令牌
-TOKEN_EXPIRY = 21600  # 6小时令牌过期时间，减少内存占用
+TOKEN_EXPIRY = 3600  # 1小时令牌过期时间
 
 
 def verify_password(password: str) -> bool:
@@ -1057,7 +1073,7 @@ def generate_auth_token() -> str:
     cleanup_expired_tokens()
     
     token = secrets.token_urlsafe(32)
-    # 只存储创建时间，节省内存
+    # 只存储创建时间
     auth_tokens[token] = time.time()
     return token
 
