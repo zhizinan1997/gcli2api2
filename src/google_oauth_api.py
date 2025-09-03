@@ -253,7 +253,6 @@ class ServiceAccount:
             'iat': now
         }
         
-        # PyJWT 2.x 可以直接使用字符串形式的私钥
         return jwt.encode(payload, self.private_key, algorithm='RS256')
     
     async def get_access_token(self) -> str:
