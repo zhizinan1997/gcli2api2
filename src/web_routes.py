@@ -23,7 +23,7 @@ import zipfile
 
 import config
 from log import log
-from .auth_api import (
+from .auth import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
     batch_upload_credentials, asyncio_complete_auth_flow, 

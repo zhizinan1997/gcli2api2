@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     
     # 自动从环境变量加载凭证
     try:
-        from src.auth_api import auto_load_env_credentials_on_startup
+        from src.auth import auto_load_env_credentials_on_startup
         auto_load_env_credentials_on_startup()
     except Exception as e:
         log.error(f"自动加载环境变量凭证失败: {e}")
