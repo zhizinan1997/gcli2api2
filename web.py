@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Import all routers
 from src.openai_router import router as openai_router
@@ -107,6 +108,9 @@ app.include_router(
     prefix="",
     tags=["Web Interface"]
 )
+
+# 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
+app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 
 # 保活接口（仅响应 HEAD）
 @app.head("/keepalive")
