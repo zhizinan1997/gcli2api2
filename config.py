@@ -79,33 +79,19 @@ def should_include_thoughts(model_name):
         # For all other modes, include thoughts
         return True
 
-# Dynamic Configuration System
-_config_cache = {}
-_config_cache_time = 0
-
+# Dynamic Configuration System - Optimized for memory efficiency
 def _load_toml_config() -> dict:
-    """Load configuration from dedicated config.toml file."""
-    global _config_cache, _config_cache_time
-    
+    """Load configuration from dedicated config.toml file directly from disk."""
     try:
         config_file = os.path.join(CREDENTIALS_DIR, "config.toml")
         
-        # Check if file exists and get modification time
+        # Check if file exists
         if not os.path.exists(config_file):
             return {}
         
-        file_time = os.path.getmtime(config_file)
-        
-        # Return cached config if file hasn't changed
-        if file_time <= _config_cache_time and _config_cache:
-            return _config_cache
-        
-        # Load fresh config
+        # Load config directly from disk each time
         with open(config_file, "r", encoding="utf-8") as f:
             toml_data = toml.load(f)
-        
-        _config_cache = toml_data
-        _config_cache_time = file_time
         
         return toml_data
     
@@ -135,19 +121,12 @@ def save_config_to_toml(config_data: dict) -> None:
         with open(config_file, "w", encoding="utf-8") as f:
             toml.dump(config_data, f)
         
-        # Force cache refresh
-        global _config_cache, _config_cache_time
-        _config_cache = config_data
-        _config_cache_time = os.path.getmtime(config_file)
-        
     except Exception as e:
         raise Exception(f"Failed to save config: {e}")
 
 def reload_config_cache() -> None:
-    """Force reload configuration cache."""
-    global _config_cache, _config_cache_time
-    _config_cache = {}
-    _config_cache_time = 0
+    """Reload configuration - now a no-op since we read directly from disk."""
+    pass  # No cache to reload since we read from disk each time
 
 # Proxy Configuration
 def get_proxy_config():

@@ -335,9 +335,7 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
         # 读取ZIP文件内容
         zip_content = await zip_file.read()
         
-        # 检查ZIP文件大小
-        if len(zip_content) > 50 * 1024 * 1024:  # 50MB限制
-            raise HTTPException(status_code=400, detail=f"ZIP文件过大，不能超过50MB")
+        # 不限制ZIP文件大小，只在处理时控制文件数量
         
         files_data = []
         
@@ -348,9 +346,6 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
             
             if not json_files:
                 raise HTTPException(status_code=400, detail="ZIP文件中没有找到JSON文件")
-            
-            if len(json_files) > 10000:
-                raise HTTPException(status_code=400, detail=f"ZIP文件中的JSON文件过多，最多支持10000个，当前：{len(json_files)}个")
 
             log.info(f"从ZIP文件 {zip_file.filename} 中找到 {len(json_files)} 个JSON文件")
             
@@ -359,11 +354,6 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
                     # 读取JSON文件内容
                     with zip_ref.open(json_filename) as json_file:
                         content = json_file.read()
-                        
-                        # 检查单个文件大小
-                        if len(content) > 5 * 1024 * 1024:  # 5MB限制
-                            log.warning(f"跳过过大的文件: {json_filename} ({len(content)/1024/1024:.1f}MB)")
-                            continue
                         
                         try:
                             content_str = content.decode('utf-8')
@@ -418,10 +408,10 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
                 
             elif file.filename.endswith('.json'):
                 # 处理单个JSON文件
-                # 检查单个文件大小 (5MB)
+                # 检查单个文件大小 (1MB)
                 file_size = file.size if hasattr(file, 'size') and file.size else 0
-                if file_size > 5 * 1024 * 1024:
-                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 过大，单个文件不能超过5MB")
+                if file_size > 1 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 过大，单个文件不能超过1MB")
                 
                 total_size += file_size
                 if total_size > max_total_size:

@@ -98,7 +98,7 @@ class UsageStats:
             return clean_model == "gemini-2.5-pro"
     
     async def _load_stats(self):
-        """Load statistics from the state file."""
+        """Load statistics from the state file - 优化为直接读取文件状态中的统计数据"""
         try:
             if os.path.exists(self._state_file):
                 async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
@@ -106,16 +106,26 @@ class UsageStats:
                 
                 state_data = toml.loads(content)
                 
-                # Extract usage stats from each credential entry
+                # 直接从文件状态中提取使用统计
                 self._stats_cache = {}
                 for filename, cred_data in state_data.items():
-                    if isinstance(cred_data, dict) and "usage_stats" in cred_data:
+                    if isinstance(cred_data, dict):
                         normalized_filename = self._normalize_filename(filename)
-                        self._stats_cache[normalized_filename] = cred_data["usage_stats"]
+                        # 直接从文件状态中读取统计字段
+                        usage_data = {
+                            "gemini_2_5_pro_calls": cred_data.get("gemini_2_5_pro_calls", 0),
+                            "total_calls": cred_data.get("total_calls", 0),
+                            "next_reset_time": cred_data.get("next_reset_time"),
+                            "daily_limit_gemini_2_5_pro": cred_data.get("daily_limit_gemini_2_5_pro", 100),
+                            "daily_limit_total": cred_data.get("daily_limit_total", 1500)
+                        }
+                        # 只缓存有实际数据的统计
+                        if any(usage_data[k] for k in ["gemini_2_5_pro_calls", "total_calls", "next_reset_time"]):
+                            self._stats_cache[normalized_filename] = usage_data
                 
                 log.debug(f"Loaded usage statistics for {len(self._stats_cache)} credential files")
                 
-                # Clean statistics for deleted credential files after loading (call internal method to avoid recursive initialization)
+                # Clean statistics for deleted credential files after loading
                 await self._clean_deleted_credentials_internal()
                 
             else:
@@ -126,7 +136,7 @@ class UsageStats:
             self._stats_cache = {}
     
     async def _save_stats(self):
-        """Save statistics to the state file."""
+        """Save statistics to the state file - 直接写入文件状态中"""
         current_time = time.time()
         
         # 使用脏标记和时间间隔控制，减少不必要的写入
@@ -141,11 +151,19 @@ class UsageStats:
                     content = await f.read()
                 state_data = toml.loads(content)
             
-            # Update usage stats for each credential file
+            # 直接将统计数据写入文件状态
             for filename, stats in self._stats_cache.items():
                 if filename not in state_data:
                     state_data[filename] = {}
-                state_data[filename]["usage_stats"] = stats
+                
+                # 直接写入统计字段到文件状态
+                state_data[filename].update({
+                    "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
+                    "total_calls": stats.get("total_calls", 0),
+                    "next_reset_time": stats.get("next_reset_time"),
+                    "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
+                    "daily_limit_total": stats.get("daily_limit_total", 1500)
+                })
             
             # Write back to file
             os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
