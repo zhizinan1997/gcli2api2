@@ -8,4 +8,3 @@ hypercorn
 aiofiles
 python-multipart
 toml
-psutil
