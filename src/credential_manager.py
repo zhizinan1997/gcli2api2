@@ -794,8 +794,6 @@ class CredentialManager:
             # 需要加载新凭证
             if self._call_count >= current_calls_per_rotation:
                 log.info(f"Rotating credentials after {self._call_count} calls")
-            else:
-                log.info("Cache miss - loading fresh credentials")
             
             # 轮换凭证
             await self._rotate_credential_if_needed()
@@ -845,7 +843,7 @@ class CredentialManager:
                 file_path, creds_data
             )
             
-            log.info(f"Token已更新到文件: {os.path.basename(file_path)}")
+            log.debug(f"Token已更新到文件: {os.path.basename(file_path)}")
             
         except Exception as e:
             log.error(f"更新token到文件失败 {file_path}: {e}")
@@ -947,7 +945,7 @@ class CredentialManager:
                             file_token = creds_data.get("access_token") or creds_data.get("token")
                             creds.access_token = file_token
                             creds.expires_at = file_expiry
-                            log.info(f"使用文件中的有效access_token，剩余时间: {int(time_left/60)}分钟")
+                            log.debug(f"使用文件中的有效access_token，剩余时间: {int(time_left/60)}分钟")
                         else:
                             should_refresh = True
                             log.debug(f"文件中token即将过期（剩余{int(time_left/60)}分钟），需要刷新")
@@ -965,7 +963,7 @@ class CredentialManager:
                     
                     # 刷新成功后写入文件
                     await self._update_token_in_file(file_path, creds)
-                    log.info(f"Token刷新并保存成功: {os.path.basename(file_path)}")
+                    log.debug(f"Token刷新并保存成功: {os.path.basename(file_path)}")
                         
                 except Exception as e:
                     log.warning(f"Token刷新失败 {os.path.basename(file_path)}: {e}")
@@ -1017,7 +1015,7 @@ class CredentialManager:
             # 记录当前使用的文件名称供调试
             if self._credential_files:
                 current_file = self._credential_files[self._current_credential_index]
-                log.info(f"Now using credential: {os.path.basename(current_file)}")
+                log.debug(f"Now using credential: {os.path.basename(current_file)}")
 
     def get_user_project_id(self, creds: Credentials) -> str:
         """Get user project ID from credentials."""
