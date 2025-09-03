@@ -138,15 +138,13 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     resp = await stream_ctx.__aenter__()
                     
                     if resp.status_code == 429:
-                        # 记录429错误，限制响应内容大小
+                        # 记录429错误
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
                             try:
                                 content_bytes = await resp.aread()
                                 if isinstance(content_bytes, bytes):
-                                    # 限制响应内容最大1KB，减少内存占用
-                                    content_bytes = content_bytes[:1024]
                                     response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
@@ -208,7 +206,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     )
                     
                     if resp.status_code == 429:
-                        # 记录429错误，限制响应内容大小
+                        # 记录429错误
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
@@ -216,14 +214,10 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                                 if hasattr(resp, 'content'):
                                     content = resp.content
                                     if isinstance(content, bytes):
-                                        # 限制响应内容最大1KB，减少内存占用
-                                        content = content[:1024]
                                         response_content = content.decode('utf-8', errors='ignore')
                                 else:
                                     content_bytes = await resp.aread()
                                     if isinstance(content_bytes, bytes):
-                                        # 限制响应内容最大1KB，减少内存占用
-                                        content_bytes = content_bytes[:1024]
                                         response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
@@ -282,13 +276,11 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
             current_file = credential_manager.get_current_file_path() if credential_manager else None
             log.debug(f"[STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
             
-            # 尝试获取响应内容用于详细错误显示，限制大小
+            # 获取响应内容用于详细错误显示
             response_content = ""
             try:
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content_bytes = content_bytes[:1024]
                     response_content = content_bytes.decode('utf-8', errors='ignore')
             except Exception as e:
                 log.debug(f"[STREAMING] Failed to read response content for error analysis: {e}")
@@ -427,20 +419,16 @@ async def _handle_non_streaming_response(resp: httpx.Response, credential_manage
         current_file = credential_manager.get_current_file_path() if credential_manager else None
         log.debug(f"[NON-STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
         
-        # 获取响应内容用于详细错误显示，限制大小
+        # 获取响应内容用于详细错误显示
         response_content = ""
         try:
             if hasattr(resp, 'content'):
                 content = resp.content
                 if isinstance(content, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content = content[:1024]
                     response_content = content.decode('utf-8', errors='ignore')
             else:
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content_bytes = content_bytes[:1024]
                     response_content = content_bytes.decode('utf-8', errors='ignore')
         except Exception as e:
             log.debug(f"[NON-STREAMING] Failed to read response content for error analysis: {e}")
