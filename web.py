@@ -3,7 +3,6 @@ Main Web Integration - Integrates all routers and modules
 集合router并开启主服务
 """
 import asyncio
-import signal
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
