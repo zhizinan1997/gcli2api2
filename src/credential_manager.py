@@ -383,7 +383,6 @@ class CredentialManager:
         """记录API错误码"""
         async with self._write_context():
             # 使用相对路径进行状态管理
-            relative_filename = _normalize_to_relative_path(filename)
             cred_state = await self._get_cred_state(filename)
             
             # 记录错误码
