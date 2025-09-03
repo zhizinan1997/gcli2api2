@@ -16,7 +16,6 @@ class TokenError(Exception):
     """Token相关错误"""
     pass
 
-
 class Credentials:
     """凭证类"""
     
