@@ -16,7 +16,7 @@ import aiofiles
 import httpx
 import toml
 
-from .google_oauth import Credentials
+from .google_oauth_api import Credentials
 from config import (
     CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
     get_proxy_config, get_calls_per_rotation, get_http_timeout, get_max_connections,

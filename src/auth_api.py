@@ -17,7 +17,7 @@ from urllib.parse import urlparse, parse_qs
 
 import httpx
 
-from .google_oauth import Credentials, Flow
+from .google_oauth_api import Credentials, Flow
 from config import CREDENTIALS_DIR, get_config_value
 from log import log
 

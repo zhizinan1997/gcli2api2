@@ -15,7 +15,7 @@ from config import get_available_models, is_fake_streaming_model, is_anti_trunca
 from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_api_client import send_gemini_request, build_gemini_payload_from_openai
+from .google_chat_api import send_gemini_request, build_gemini_payload_from_openai
 from .models import ChatCompletionRequest, ModelList, Model
 from .task_manager import create_managed_task
 from .openai_transfer import openai_request_to_gemini, gemini_response_to_openai, gemini_stream_chunk_to_openai
