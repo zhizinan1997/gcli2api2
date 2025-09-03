@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 import aiofiles
 import toml
 
-from .google_oauth_api import Credentials, get_user_email, fetch_user_email_from_file
+from .google_oauth_api import Credentials, fetch_user_email_from_file
 from .httpx_client import http_client
 from config import (
     CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
