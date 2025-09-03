@@ -8,9 +8,9 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-from config import get_oauth_proxy_url
+from config import get_oauth_proxy_url, get_googleapis_proxy_url
 from log import log
-from .httpx_client import http_client, oauth_post_async, googleapis_get_async, googleapis_post_async, metadata_get_async
+from .httpx_client import get_async, post_async
 
 
 class TokenError(Exception):
@@ -68,8 +68,10 @@ class Credentials:
         }
         
         try:
-            response = await oauth_post_async(
-                'token',
+            oauth_base_url = get_oauth_proxy_url()
+            token_url = f"{oauth_base_url.rstrip('/')}/token"
+            response = await post_async(
+                token_url,
                 data=data,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
@@ -181,8 +183,10 @@ class Flow:
         }
         
         try:
-            response = await oauth_post_async(
-                'token',
+            oauth_base_url = get_oauth_proxy_url()
+            token_url = f"{oauth_base_url.rstrip('/')}/token"
+            response = await post_async(
+                token_url,
                 data=data,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
@@ -271,8 +275,10 @@ class ServiceAccount:
         }
         
         try:
-            response = await oauth_post_async(
-                'token',
+            oauth_base_url = get_oauth_proxy_url()
+            token_url = f"{oauth_base_url.rstrip('/')}/token"
+            response = await post_async(
+                token_url,
                 data=data,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
@@ -309,8 +315,10 @@ async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
     await credentials.refresh_if_needed()
     
     try:
-        response = await googleapis_get_async(
-            'oauth2/v2/userinfo',
+        googleapis_base_url = get_googleapis_proxy_url()
+        userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
+        response = await get_async(
+            userinfo_url,
             headers={'Authorization': f'Bearer {credentials.access_token}'}
         )
         response.raise_for_status()
@@ -379,10 +387,9 @@ async def validate_token(token: str) -> Optional[Dict[str, Any]]:
         oauth_base_url = get_oauth_proxy_url()
         tokeninfo_url = f"{oauth_base_url.rstrip('/')}/tokeninfo?access_token={token}"
         
-        async with http_client.get_oauth_client() as client:
-            response = await client.get(tokeninfo_url)
-            response.raise_for_status()
-            return response.json()
+        response = await get_async(tokeninfo_url)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         log.error(f"验证令牌失败: {e}")
         return None
@@ -411,9 +418,10 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
             log.info(f"正在检查并启用服务: {service}")
             
             # 检查服务是否已启用
-            check_endpoint = f"serviceusage/v1/projects/{project_id}/services/{service}"
+            googleapis_base_url = get_googleapis_proxy_url()
+            check_url = f"{googleapis_base_url.rstrip('/')}/serviceusage/v1/projects/{project_id}/services/{service}"
             try:
-                check_response = await googleapis_get_async(check_endpoint, headers=headers)
+                check_response = await get_async(check_url, headers=headers)
                 if check_response.status_code == 200:
                     service_data = check_response.json()
                     if service_data.get("state") == "ENABLED":
@@ -423,9 +431,9 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
                 log.debug(f"检查服务状态失败，将尝试启用: {e}")
             
             # 启用服务
-            enable_endpoint = f"serviceusage/v1/projects/{project_id}/services/{service}:enable"
+            enable_url = f"{googleapis_base_url.rstrip('/')}/serviceusage/v1/projects/{project_id}/services/{service}:enable"
             try:
-                enable_response = await googleapis_post_async(enable_endpoint, headers=headers, json={})
+                enable_response = await post_async(enable_url, headers=headers, json={})
                 
                 if enable_response.status_code in [200, 201]:
                     log.info(f"✅ 成功启用服务: {service}")
@@ -461,9 +469,10 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
         }
         
         # 使用v3 API的projects:search端点
-        endpoint = "cloudresourcemanager/v3/projects:search"
-        log.info(f"正在调用API: {endpoint}")
-        response = await googleapis_get_async(endpoint, headers=headers)
+        googleapis_base_url = get_googleapis_proxy_url()
+        url = f"{googleapis_base_url.rstrip('/')}/cloudresourcemanager/v3/projects:search"
+        log.info(f"正在调用API: {url}")
+        response = await get_async(url, headers=headers)
         
         log.info(f"API响应状态码: {response.status_code}")
         if response.status_code != 200:
@@ -483,7 +492,8 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             log.warning(f"没有权限访问项目列表: {response.text}")
             # 尝试用户信息API来获取一些线索
             try:
-                userinfo_response = await googleapis_get_async("oauth2/v2/userinfo", headers=headers)
+                userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
+                userinfo_response = await get_async(userinfo_url, headers=headers)
                 if userinfo_response.status_code == 200:
                     userinfo = userinfo_response.json()
                     log.info(f"获取到用户信息: {userinfo.get('email')}")
@@ -505,7 +515,7 @@ async def auto_detect_project_id() -> Optional[str]:
     
     try:
         # 尝试从Google Cloud Metadata服务获取项目ID
-        response = await metadata_get_async(
+        response = await get_async(
             "http://metadata.google.internal/computeMetadata/v1/project/project-id",
             headers={"Metadata-Flavor": "Google"},
             timeout=5.0

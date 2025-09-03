@@ -1,21 +1,20 @@
 """
-统一的HTTP客户端模块
+通用的HTTP客户端模块
 为所有需要使用httpx的模块提供统一的客户端配置和方法
+保持通用性，不与特定业务逻辑耦合
 """
 import httpx
 from typing import Optional, Dict, Any, AsyncGenerator
 from contextlib import asynccontextmanager
 
-from config import get_proxy_config, get_oauth_proxy_url, get_googleapis_proxy_url
+from config import get_proxy_config
 from log import log
 
 
 class HttpxClientManager:
-    """HTTP客户端管理器"""
+    """通用HTTP客户端管理器"""
     
     def __init__(self):
-        self.oauth_base_url = get_oauth_proxy_url()
-        self.googleapis_base_url = get_googleapis_proxy_url()
         self.proxy_config = get_proxy_config()
     
     def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
@@ -39,18 +38,6 @@ class HttpxClientManager:
         async with httpx.AsyncClient(**client_kwargs) as client:
             yield client
     
-    @asynccontextmanager 
-    async def get_oauth_client(self, timeout: float = 30.0, **kwargs) -> AsyncGenerator[httpx.AsyncClient, None]:
-        """获取用于OAuth操作的HTTP客户端"""
-        async with self.get_client(timeout=timeout, **kwargs) as client:
-            yield client
-    
-    @asynccontextmanager
-    async def get_googleapis_client(self, timeout: float = 30.0, **kwargs) -> AsyncGenerator[httpx.AsyncClient, None]:
-        """获取用于Google APIs操作的HTTP客户端"""
-        async with self.get_client(timeout=timeout, **kwargs) as client:
-            yield client
-    
     @asynccontextmanager
     async def get_streaming_client(self, timeout: float = None, **kwargs) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取用于流式请求的HTTP客户端（无超时限制）"""
@@ -62,24 +49,16 @@ class HttpxClientManager:
             yield client
         finally:
             await client.aclose()
-    
-    def get_oauth_url(self, endpoint: str) -> str:
-        """获取OAuth服务的完整URL"""
-        return f"{self.oauth_base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-    
-    def get_googleapis_url(self, endpoint: str) -> str:
-        """获取Google APIs的完整URL"""
-        return f"{self.googleapis_base_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
 
 # 全局HTTP客户端管理器实例
 http_client = HttpxClientManager()
 
 
-# 便捷的异步方法
+# 通用的异步方法
 async def get_async(url: str, headers: Optional[Dict[str, str]] = None, 
                    timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步GET请求"""
+    """通用异步GET请求"""
     async with http_client.get_client(timeout=timeout, **kwargs) as client:
         return await client.get(url, headers=headers)
 
@@ -87,51 +66,24 @@ async def get_async(url: str, headers: Optional[Dict[str, str]] = None,
 async def post_async(url: str, data: Any = None, json: Any = None,
                     headers: Optional[Dict[str, str]] = None,
                     timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步POST请求"""
+    """通用异步POST请求"""
     async with http_client.get_client(timeout=timeout, **kwargs) as client:
         return await client.post(url, data=data, json=json, headers=headers)
 
 
-async def oauth_get_async(endpoint: str, headers: Optional[Dict[str, str]] = None,
-                         timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步OAuth GET请求"""
-    url = http_client.get_oauth_url(endpoint)
-    async with http_client.get_oauth_client(timeout=timeout, **kwargs) as client:
-        return await client.get(url, headers=headers)
+async def put_async(url: str, data: Any = None, json: Any = None,
+                   headers: Optional[Dict[str, str]] = None,
+                   timeout: float = 30.0, **kwargs) -> httpx.Response:
+    """通用异步PUT请求"""
+    async with http_client.get_client(timeout=timeout, **kwargs) as client:
+        return await client.put(url, data=data, json=json, headers=headers)
 
 
-async def oauth_post_async(endpoint: str, data: Any = None, json: Any = None,
-                          headers: Optional[Dict[str, str]] = None,
-                          timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步OAuth POST请求"""
-    url = http_client.get_oauth_url(endpoint)
-    async with http_client.get_oauth_client(timeout=timeout, **kwargs) as client:
-        return await client.post(url, data=data, json=json, headers=headers)
-
-
-async def googleapis_get_async(endpoint: str, headers: Optional[Dict[str, str]] = None,
-                              timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步Google APIs GET请求"""
-    url = http_client.get_googleapis_url(endpoint)
-    async with http_client.get_googleapis_client(timeout=timeout, **kwargs) as client:
-        return await client.get(url, headers=headers)
-
-
-async def googleapis_post_async(endpoint: str, data: Any = None, json: Any = None,
-                               headers: Optional[Dict[str, str]] = None,
-                               timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """异步Google APIs POST请求"""
-    url = http_client.get_googleapis_url(endpoint)
-    async with http_client.get_googleapis_client(timeout=timeout, **kwargs) as client:
-        return await client.post(url, data=data, json=json, headers=headers)
-
-
-# 用于metadata服务等特殊用途的请求方法
-async def metadata_get_async(url: str, headers: Optional[Dict[str, str]] = None,
-                            timeout: float = 5.0) -> httpx.Response:
-    """异步访问Google Cloud Metadata服务"""
-    async with http_client.get_client(timeout=timeout) as client:
-        return await client.get(url, headers=headers)
+async def delete_async(url: str, headers: Optional[Dict[str, str]] = None,
+                      timeout: float = 30.0, **kwargs) -> httpx.Response:
+    """通用异步DELETE请求"""
+    async with http_client.get_client(timeout=timeout, **kwargs) as client:
+        return await client.delete(url, headers=headers)
 
 
 # 错误处理装饰器
@@ -154,7 +106,7 @@ def handle_http_errors(func):
     return wrapper
 
 
-# 应用错误处理的便捷方法
+# 应用错误处理的安全方法
 @handle_http_errors
 async def safe_get_async(url: str, headers: Optional[Dict[str, str]] = None,
                         timeout: float = 30.0, **kwargs) -> httpx.Response:
@@ -171,33 +123,18 @@ async def safe_post_async(url: str, data: Any = None, json: Any = None,
 
 
 @handle_http_errors
-async def safe_oauth_get_async(endpoint: str, headers: Optional[Dict[str, str]] = None,
-                              timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """安全的异步OAuth GET请求（自动错误处理）"""
-    return await oauth_get_async(endpoint, headers=headers, timeout=timeout, **kwargs)
+async def safe_put_async(url: str, data: Any = None, json: Any = None,
+                        headers: Optional[Dict[str, str]] = None,
+                        timeout: float = 30.0, **kwargs) -> httpx.Response:
+    """安全的异步PUT请求（自动错误处理）"""
+    return await put_async(url, data=data, json=json, headers=headers, timeout=timeout, **kwargs)
 
 
 @handle_http_errors
-async def safe_oauth_post_async(endpoint: str, data: Any = None, json: Any = None,
-                               headers: Optional[Dict[str, str]] = None,
-                               timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """安全的异步OAuth POST请求（自动错误处理）"""
-    return await oauth_post_async(endpoint, data=data, json=json, headers=headers, timeout=timeout, **kwargs)
-
-
-@handle_http_errors
-async def safe_googleapis_get_async(endpoint: str, headers: Optional[Dict[str, str]] = None,
-                                   timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """安全的异步Google APIs GET请求（自动错误处理）"""
-    return await googleapis_get_async(endpoint, headers=headers, timeout=timeout, **kwargs)
-
-
-@handle_http_errors
-async def safe_googleapis_post_async(endpoint: str, data: Any = None, json: Any = None,
-                                    headers: Optional[Dict[str, str]] = None,
-                                    timeout: float = 30.0, **kwargs) -> httpx.Response:
-    """安全的异步Google APIs POST请求（自动错误处理）"""
-    return await googleapis_post_async(endpoint, data=data, json=json, headers=headers, timeout=timeout, **kwargs)
+async def safe_delete_async(url: str, headers: Optional[Dict[str, str]] = None,
+                           timeout: float = 30.0, **kwargs) -> httpx.Response:
+    """安全的异步DELETE请求（自动错误处理）"""
+    return await delete_async(url, headers=headers, timeout=timeout, **kwargs)
 
 
 # 流式请求支持
