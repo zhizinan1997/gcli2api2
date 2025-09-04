@@ -812,6 +812,8 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["oauth_proxy_url"] = config.get_oauth_proxy_url()
         current_config["googleapis_proxy_url"] = config.get_googleapis_proxy_url()
         current_config["metadata_service_url"] = config.get_metadata_service_url()
+        current_config["resource_manager_api_url"] = config.get_resource_manager_api_url()
+        current_config["service_usage_api_url"] = config.get_service_usage_api_url()
         
         # 检查环境变量锁定状态
         if os.getenv("CODE_ASSIST_ENDPOINT"):
@@ -826,6 +828,10 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("googleapis_proxy_url")
         if os.getenv("METADATA_SERVICE_URL"):
             env_locked.append("metadata_service_url")
+        if os.getenv("RESOURCE_MANAGER_API_URL"):
+            env_locked.append("resource_manager_api_url")
+        if os.getenv("SERVICE_USAGE_API_URL"):
+            env_locked.append("service_usage_api_url")
         
         # 自动封禁配置
         current_config["auto_ban_enabled"] = config.get_auto_ban_enabled()

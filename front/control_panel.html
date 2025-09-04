@@ -1331,6 +1331,18 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                     placeholder="http://metadata.google.internal" />
                                 <small class="config-note">Google Cloud Metadata API端点地址，用于自动检测项目ID</small>
                             </div>
+                            <div class="form-group">
+                                <label for="resourceManagerApiUrl">Resource Manager API Endpoint:</label>
+                                <input type="text" id="resourceManagerApiUrl" class="config-input"
+                                    placeholder="https://cloudresourcemanager.googleapis.com" />
+                                <small class="config-note">Google Cloud Resource Manager API端点地址，用于项目管理</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="serviceUsageApiUrl">Service Usage API Endpoint:</label>
+                                <input type="text" id="serviceUsageApiUrl" class="config-input"
+                                    placeholder="https://serviceusage.googleapis.com" />
+                                <small class="config-note">Google Cloud Service Usage API端点地址，用于服务启用管理</small>
+                            </div>
                         </div>
 
                         <div class="config-group">
@@ -2780,6 +2792,8 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             setConfigField('oauthProxyUrl', currentConfig.oauth_proxy_url || '');
             setConfigField('googleapisProxyUrl', currentConfig.googleapis_proxy_url || '');
             setConfigField('metadataServiceUrl', currentConfig.metadata_service_url || '');
+            setConfigField('resourceManagerApiUrl', currentConfig.resource_manager_api_url || '');
+            setConfigField('serviceUsageApiUrl', currentConfig.service_usage_api_url || '');
 
             // 自动封禁配置
             document.getElementById('autoBanEnabled').checked = Boolean(currentConfig.auto_ban_enabled);
@@ -2841,6 +2855,8 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     oauth_proxy_url: document.getElementById('oauthProxyUrl').value.trim(),
                     googleapis_proxy_url: document.getElementById('googleapisProxyUrl').value.trim(),
                     metadata_service_url: document.getElementById('metadataServiceUrl').value.trim(),
+                    resource_manager_api_url: document.getElementById('resourceManagerApiUrl').value.trim(),
+                    service_usage_api_url: document.getElementById('serviceUsageApiUrl').value.trim(),
                     auto_ban_enabled: document.getElementById('autoBanEnabled').checked,
                     auto_ban_error_codes: document.getElementById('autoBanErrorCodes').value
                         .split(',')
