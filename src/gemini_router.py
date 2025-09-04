@@ -229,9 +229,9 @@ async def stream_generate_content(
     api_key: str = Depends(authenticate_gemini_flexible)
 ):
     """处理Gemini格式的流式内容生成请求"""
-    log.info(f"Stream request received for model: {model}")
-    log.info(f"Request headers: {dict(request.headers)}")
-    log.info(f"API key received: {api_key[:10] if api_key else None}...")
+    log.debug(f"Stream request received for model: {model}")
+    log.debug(f"Request headers: {dict(request.headers)}")
+    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
     
     
     # 获取原始请求数据
