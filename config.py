@@ -6,9 +6,6 @@ import os
 import toml
 from typing import Any, Optional
 
-# API Endpoints
-CODE_ASSIST_ENDPOINT = os.getenv("CODE_ASSIST_ENDPOINT", "https://cloudcode-pa.googleapis.com")
-
 # Client Configuration
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
 
@@ -406,7 +403,7 @@ def get_code_assist_endpoint() -> str:
     TOML config key: code_assist_endpoint
     Default: https://cloudcode-pa.googleapis.com
     """
-    return str(get_config_value("code_assist_endpoint", CODE_ASSIST_ENDPOINT, "CODE_ASSIST_ENDPOINT"))
+    return str(get_config_value("code_assist_endpoint", "https://cloudcode-pa.googleapis.com", "CODE_ASSIST_ENDPOINT"))
 
 def get_auto_load_env_creds() -> bool:
     """
