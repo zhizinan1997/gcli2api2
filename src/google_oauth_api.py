@@ -3,6 +3,7 @@ Google OAuth2 认证模块
 """
 import time
 import jwt
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
@@ -53,8 +54,8 @@ class Credentials:
         await self.refresh()
         return True
     
-    async def refresh(self):
-        """刷新访问令牌"""
+    async def refresh(self, max_retries: int = 3, base_delay: float = 1.0):
+        """刷新访问令牌，支持重试机制"""
         if not self.refresh_token:
             raise TokenError("无刷新令牌")
         
@@ -65,32 +66,48 @@ class Credentials:
             'grant_type': 'refresh_token'
         }
         
-        try:
-            oauth_base_url = get_oauth_proxy_url()
-            token_url = f"{oauth_base_url.rstrip('/')}/token"
-            response = await post_async(
-                token_url,
-                data=data,
-                headers={'Content-Type': 'application/x-www-form-urlencoded'}
-            )
-            response.raise_for_status()
-            
-            token_data = response.json()
-            self.access_token = token_data['access_token']
-            
-            if 'expires_in' in token_data:
-                expires_in = int(token_data['expires_in'])
-                self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            
-            if 'refresh_token' in token_data:
-                self.refresh_token = token_data['refresh_token']
-            
-            log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
-            
-        except Exception as e:
-            error_msg = f"Token刷新失败: {str(e)}"
-            log.error(error_msg)
-            raise TokenError(error_msg)
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                oauth_base_url = get_oauth_proxy_url()
+                token_url = f"{oauth_base_url.rstrip('/')}/token"
+                response = await post_async(
+                    token_url,
+                    data=data,
+                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
+                )
+                response.raise_for_status()
+                
+                token_data = response.json()
+                self.access_token = token_data['access_token']
+                
+                if 'expires_in' in token_data:
+                    expires_in = int(token_data['expires_in'])
+                    self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                
+                if 'refresh_token' in token_data:
+                    self.refresh_token = token_data['refresh_token']
+                
+                if attempt > 0:
+                    log.debug(f"Token刷新成功（第{attempt + 1}次尝试），过期时间: {self.expires_at}")
+                else:
+                    log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
+                return
+                
+            except Exception as e:
+                last_exception = e
+                if attempt < max_retries:
+                    # 计算退避延迟时间（指数退避）
+                    delay = base_delay * (2 ** attempt)
+                    log.warning(f"Token刷新失败（第{attempt + 1}次尝试）: {str(e)}，{delay}秒后重试...")
+                    await asyncio.sleep(delay)
+                else:
+                    break
+        
+        # 所有重试都失败了
+        error_msg = f"Token刷新失败（已重试{max_retries}次）: {str(last_exception)}"
+        log.error(error_msg)
+        raise TokenError(error_msg)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Credentials':
