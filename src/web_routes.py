@@ -811,7 +811,6 @@ async def get_config(token: str = Depends(verify_token)):
         # 代理端点配置
         current_config["oauth_proxy_url"] = config.get_oauth_proxy_url()
         current_config["googleapis_proxy_url"] = config.get_googleapis_proxy_url()
-        current_config["metadata_service_url"] = config.get_metadata_service_url()
         current_config["resource_manager_api_url"] = config.get_resource_manager_api_url()
         current_config["service_usage_api_url"] = config.get_service_usage_api_url()
         
@@ -826,8 +825,6 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("oauth_proxy_url")
         if os.getenv("GOOGLEAPIS_PROXY_URL"):
             env_locked.append("googleapis_proxy_url")
-        if os.getenv("METADATA_SERVICE_URL"):
-            env_locked.append("metadata_service_url")
         if os.getenv("RESOURCE_MANAGER_API_URL"):
             env_locked.append("resource_manager_api_url")
         if os.getenv("SERVICE_USAGE_API_URL"):
@@ -1006,8 +1003,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("oauth_proxy_url")
         if os.getenv("GOOGLEAPIS_PROXY_URL"):
             env_locked_keys.add("googleapis_proxy_url")
-        if os.getenv("METADATA_SERVICE_URL"):
-            env_locked_keys.add("metadata_service_url")
         if os.getenv("AUTO_BAN"):
             env_locked_keys.add("auto_ban_enabled")
         if os.getenv("RETRY_429_MAX_RETRIES"):
@@ -1089,7 +1084,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 hot_updated.append("proxy")
             
             # 代理端点配置（可热更新）
-            proxy_endpoint_configs = ["oauth_proxy_url", "googleapis_proxy_url", "metadata_service_url"]
+            proxy_endpoint_configs = ["oauth_proxy_url", "googleapis_proxy_url"]
             for config_key in proxy_endpoint_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
                     hot_updated.append(config_key)

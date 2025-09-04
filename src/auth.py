@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
-from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, auto_detect_project_id, select_default_project
+from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, select_default_project
 from config import CREDENTIALS_DIR, get_config_value
 from log import log
 
@@ -317,21 +317,7 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
                 'error': '未找到对应的认证流程，请先点击获取认证链接'
             }
         
-        # 如果需要自动检测项目ID且没有提供项目ID
-        if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("尝试自动检测项目ID...")
-            detected_project_id = await auto_detect_project_id()
-            if detected_project_id:
-                project_id = detected_project_id
-                flow_data['project_id'] = project_id
-                log.info(f"自动检测到项目ID: {project_id}")
-            else:
-                return {
-                    'success': False,
-                    'error': '无法自动检测项目ID，请手动指定项目ID',
-                    'requires_manual_project_id': True
-                }
-        elif not project_id:
+        if not project_id:
             project_id = flow_data.get('project_id')
             if not project_id:
                 return {
@@ -547,19 +533,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         # 如果需要自动检测项目ID且没有提供项目ID
         log.info(f"[ASYNC] 检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
         if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("[ASYNC] 进入自动检测项目ID分支")
-            log.info("尝试自动检测项目ID...")
-            try:
-                detected_project_id = await auto_detect_project_id()
-                log.info(f"[ASYNC] auto_detect_project_id返回: {detected_project_id}")
-                if detected_project_id:
-                    project_id = detected_project_id
-                    flow_data['project_id'] = project_id
-                    log.info(f"自动检测到项目ID: {project_id}")
-                else:
-                    log.info("[ASYNC] 环境自动检测失败，跳过OAuth检查，直接进入等待阶段")
-            except Exception as e:
-                log.error(f"[ASYNC] auto_detect_project_id发生异常: {e}")
+            log.info("[ASYNC] 跳过自动检测项目ID，进入等待阶段")
         elif not project_id:
             log.info("[ASYNC] 进入project_id检查分支")
             project_id = flow_data.get('project_id')

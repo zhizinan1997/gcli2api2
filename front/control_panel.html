@@ -1326,12 +1326,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <small class="config-note">Google APIs API端点地址，用于API服务调用</small>
                             </div>
                             <div class="form-group">
-                                <label for="metadataServiceUrl">Metadata Endpoint:</label>
-                                <input type="text" id="metadataServiceUrl" class="config-input"
-                                    placeholder="https://metadata.google.internal" />
-                                <small class="config-note">Google Cloud Metadata API端点地址，用于自动检测项目ID</small>
-                            </div>
-                            <div class="form-group">
                                 <label for="resourceManagerApiUrl">Resource Manager API Endpoint:</label>
                                 <input type="text" id="resourceManagerApiUrl" class="config-input"
                                     placeholder="https://cloudresourcemanager.googleapis.com" />
@@ -2791,7 +2785,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             setConfigField('codeAssistEndpoint', currentConfig.code_assist_endpoint || '');
             setConfigField('oauthProxyUrl', currentConfig.oauth_proxy_url || '');
             setConfigField('googleapisProxyUrl', currentConfig.googleapis_proxy_url || '');
-            setConfigField('metadataServiceUrl', currentConfig.metadata_service_url || '');
             setConfigField('resourceManagerApiUrl', currentConfig.resource_manager_api_url || '');
             setConfigField('serviceUsageApiUrl', currentConfig.service_usage_api_url || '');
 
@@ -2854,7 +2847,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     // 端点配置
                     oauth_proxy_url: document.getElementById('oauthProxyUrl').value.trim(),
                     googleapis_proxy_url: document.getElementById('googleapisProxyUrl').value.trim(),
-                    metadata_service_url: document.getElementById('metadataServiceUrl').value.trim(),
                     resource_manager_api_url: document.getElementById('resourceManagerApiUrl').value.trim(),
                     service_usage_api_url: document.getElementById('serviceUsageApiUrl').value.trim(),
                     auto_ban_enabled: document.getElementById('autoBanEnabled').checked,

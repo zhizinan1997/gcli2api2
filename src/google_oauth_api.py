@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 
-from config import get_oauth_proxy_url, get_googleapis_proxy_url, get_metadata_service_url, get_resource_manager_api_url, get_service_usage_api_url
+from config import get_oauth_proxy_url, get_googleapis_proxy_url, get_resource_manager_api_url, get_service_usage_api_url
 from log import log
 from .httpx_client import get_async, post_async
 
@@ -506,43 +506,6 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
         return []
 
 
-async def auto_detect_project_id() -> Optional[str]:
-    """尝试从Google Cloud环境自动检测项目ID"""
-    import subprocess
-    
-    try:
-        # 尝试从Google Cloud Metadata服务获取项目ID
-        metadata_base_url = get_metadata_service_url()
-        response = await get_async(
-            f"{metadata_base_url.rstrip('/')}/computeMetadata/v1/project/project-id",
-            headers={"Metadata-Flavor": "Google"},
-            timeout=5.0
-        )
-        if response.status_code == 200:
-            project_id = response.text.strip()
-            log.info(f"从Google Cloud Metadata自动检测到项目ID: {project_id}")
-            return project_id
-    except Exception as e:
-        log.debug(f"无法从Metadata服务获取项目ID: {e}")
-    
-    # 尝试从gcloud配置获取默认项目
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"], 
-            capture_output=True, 
-            text=True, 
-            timeout=5
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            project_id = result.stdout.strip()
-            if project_id != "(unset)":
-                log.info(f"从gcloud配置自动检测到项目ID: {project_id}")
-                return project_id
-    except Exception as e:
-        log.debug(f"无法从gcloud配置获取项目ID: {e}")
-    
-    log.info("无法自动检测项目ID，将需要用户手动输入")
-    return None
 
 
 async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str]:

@@ -463,17 +463,6 @@ def get_googleapis_proxy_url() -> str:
     """
     return str(get_config_value("googleapis_proxy_url", "https://www.googleapis.com", "GOOGLEAPIS_PROXY_URL"))
 
-def get_metadata_service_url() -> str:
-    """
-    Get Google Cloud Metadata service URL setting.
-    
-    用于Google Cloud Metadata服务的URL。
-    
-    Environment variable: METADATA_SERVICE_URL
-    TOML config key: metadata_service_url
-    Default: https://metadata.google.internal
-    """
-    return str(get_config_value("metadata_service_url", "https://metadata.google.internal", "METADATA_SERVICE_URL"))
 
 def get_resource_manager_api_url() -> str:
     """
