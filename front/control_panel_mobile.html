@@ -915,13 +915,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                             <h4 style="margin-top: 0; margin-bottom: 15px;">基础配置</h4>
 
                             <div class="form-group">
-                                <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
-                                <input type="text" id="codeAssistEndpoint" />
-                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    Cloud Code Assist API端点地址</small>
-                            </div>
-
-                            <div class="form-group">
                                 <label for="credentialsDir">凭证目录路径:</label>
                                 <input type="text" id="credentialsDir" />
                                 <small
@@ -933,7 +926,40 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <input type="text" id="proxy"
                                     placeholder="例如: http://proxy:8080 或 socks5://proxy:1080" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP/HTTPS/SOCKS5代理地址，留空表示不使用代理</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP/HTTPS/SOCKS5Endpoint，留空表示不使用代理</small>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">端点配置</h4>
+
+                            <div class="form-group">
+                                <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
+                                <input type="text" id="codeAssistEndpoint" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
+                                    Cloud Code Assist API端点地址</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="oauthProxyUrl">OAuth Endpoint:</label>
+                                <input type="text" id="oauthProxyUrl" placeholder="https://oauth2.googleapis.com" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
+                                    OAuth2 API端点地址，用于token获取和刷新</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="googleapisProxyUrl">Google APIs Endpoint:</label>
+                                <input type="text" id="googleapisProxyUrl" placeholder="https://www.googleapis.com" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
+                                    APIs API端点地址，用于API服务调用</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="metadataServiceUrl">Metadata Endpoint:</label>
+                                <input type="text" id="metadataServiceUrl"
+                                    placeholder="http://metadata.google.internal" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
+                                    Cloud Metadata API端点地址，用于自动检测项目ID</small>
                             </div>
                         </div>
 
@@ -1068,7 +1094,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 6px; padding: 12px; font-size: 13px; color: #155724; margin-bottom: 10px;">
                                 <strong>🔥 热更新配置（立即生效）：</strong>
                                 <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
-                                    <li><strong>网络配置：</strong>代理、超时、连接数</li>
+                                    <li><strong>网络配置：</strong>代理、端点配置、超时、连接数</li>
                                     <li><strong>API配置：</strong>轮换次数、重试设置、自动封禁</li>
                                     <li><strong>密码配置：</strong>API密码、面板密码</li>
                                     <li><strong>日志级别：</strong>debug、info、warning等</li>
@@ -1082,7 +1108,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
                                     <li><strong>服务器配置：</strong>主机地址、端口号</li>
                                     <li><strong>文件路径：</strong>日志文件、凭证目录</li>
-                                    <li><strong>端点配置：</strong>Code Assist端点</li>
                                 </ul>
                             </div>
 
@@ -2779,9 +2804,14 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             setFieldValue('configPassword', config.password);
 
             // 基础配置
-            setFieldValue('codeAssistEndpoint', config.code_assist_endpoint);
             setFieldValue('credentialsDir', config.credentials_dir);
             setFieldValue('proxy', config.proxy);
+
+            // 端点配置
+            setFieldValue('codeAssistEndpoint', config.code_assist_endpoint);
+            setFieldValue('oauthProxyUrl', config.oauth_proxy_url);
+            setFieldValue('googleapisProxyUrl', config.googleapis_proxy_url);
+            setFieldValue('metadataServiceUrl', config.metadata_service_url);
 
             // 自动封禁配置
             setCheckboxValue('autoBanEnabled', config.auto_ban_enabled);
@@ -2867,9 +2897,14 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 panel_password: document.getElementById('configPanelPassword').value || null,
                 password: document.getElementById('configPassword').value || null,
 
-                code_assist_endpoint: document.getElementById('codeAssistEndpoint').value || null,
                 credentials_dir: document.getElementById('credentialsDir').value || null,
                 proxy: document.getElementById('proxy').value || null,
+
+                // 端点配置
+                code_assist_endpoint: document.getElementById('codeAssistEndpoint').value || null,
+                oauth_proxy_url: document.getElementById('oauthProxyUrl').value || null,
+                googleapis_proxy_url: document.getElementById('googleapisProxyUrl').value || null,
+                metadata_service_url: document.getElementById('metadataServiceUrl').value || null,
 
                 auto_ban_enabled: document.getElementById('autoBanEnabled').checked,
                 auto_ban_error_codes: document.getElementById('autoBanErrorCodes').value || null,

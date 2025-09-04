@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 
-from config import get_oauth_proxy_url, get_googleapis_proxy_url
+from config import get_oauth_proxy_url, get_googleapis_proxy_url, get_metadata_service_url
 from log import log
 from .httpx_client import get_async, post_async
 
@@ -507,8 +507,9 @@ async def auto_detect_project_id() -> Optional[str]:
     
     try:
         # 尝试从Google Cloud Metadata服务获取项目ID
+        metadata_base_url = get_metadata_service_url()
         response = await get_async(
-            "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+            f"{metadata_base_url.rstrip('/')}/computeMetadata/v1/project/project-id",
             headers={"Metadata-Flavor": "Google"},
             timeout=5.0
         )

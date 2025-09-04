@@ -808,6 +808,11 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["credentials_dir"] = config.get_credentials_dir()
         current_config["proxy"] = config.get_proxy_config() or ""
         
+        # 代理端点配置
+        current_config["oauth_proxy_url"] = config.get_oauth_proxy_url()
+        current_config["googleapis_proxy_url"] = config.get_googleapis_proxy_url()
+        current_config["metadata_service_url"] = config.get_metadata_service_url()
+        
         # 检查环境变量锁定状态
         if os.getenv("CODE_ASSIST_ENDPOINT"):
             env_locked.append("code_assist_endpoint")
@@ -815,6 +820,12 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("credentials_dir")
         if os.getenv("PROXY"):
             env_locked.append("proxy")
+        if os.getenv("OAUTH_PROXY_URL"):
+            env_locked.append("oauth_proxy_url")
+        if os.getenv("GOOGLEAPIS_PROXY_URL"):
+            env_locked.append("googleapis_proxy_url")
+        if os.getenv("METADATA_SERVICE_URL"):
+            env_locked.append("metadata_service_url")
         
         # 自动封禁配置
         current_config["auto_ban_enabled"] = config.get_auto_ban_enabled()
@@ -985,6 +996,12 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("credentials_dir")
         if os.getenv("PROXY"):
             env_locked_keys.add("proxy")
+        if os.getenv("OAUTH_PROXY_URL"):
+            env_locked_keys.add("oauth_proxy_url")
+        if os.getenv("GOOGLEAPIS_PROXY_URL"):
+            env_locked_keys.add("googleapis_proxy_url")
+        if os.getenv("METADATA_SERVICE_URL"):
+            env_locked_keys.add("metadata_service_url")
         if os.getenv("AUTO_BAN"):
             env_locked_keys.add("auto_ban_enabled")
         if os.getenv("RETRY_429_MAX_RETRIES"):
@@ -1064,6 +1081,12 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             # 2. 代理配置（部分热更新）
             if "proxy" in new_config and "proxy" not in env_locked_keys:
                 hot_updated.append("proxy")
+            
+            # 代理端点配置（可热更新）
+            proxy_endpoint_configs = ["oauth_proxy_url", "googleapis_proxy_url", "metadata_service_url"]
+            for config_key in proxy_endpoint_configs:
+                if config_key in new_config and config_key not in env_locked_keys:
+                    hot_updated.append(config_key)
 
             # 3. 日志配置（部分热更新）
             # 注意：日志级别可以热更新，但日志文件路径需要重启
