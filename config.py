@@ -471,9 +471,9 @@ def get_metadata_service_url() -> str:
     
     Environment variable: METADATA_SERVICE_URL
     TOML config key: metadata_service_url
-    Default: http://metadata.google.internal
+    Default: https://metadata.google.internal
     """
-    return str(get_config_value("metadata_service_url", "http://metadata.google.internal", "METADATA_SERVICE_URL"))
+    return str(get_config_value("metadata_service_url", "https://metadata.google.internal", "METADATA_SERVICE_URL"))
 
 def get_resource_manager_api_url() -> str:
     """
