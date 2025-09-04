@@ -18,7 +18,7 @@ import toml
 from .google_oauth_api import Credentials, fetch_user_email_from_file
 from .httpx_client import http_client
 from config import (
-    CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
+    CREDENTIALS_DIR, get_code_assist_endpoint,
     get_calls_per_rotation,
     get_auto_ban_enabled,
     get_auto_ban_error_codes
@@ -1057,7 +1057,7 @@ class CredentialManager:
                 # Use HTTP client from httpx_client module
                 async with http_client.get_client() as client:
                     resp = await client.post(
-                        f"{CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist",
+                        f"{get_code_assist_endpoint()}/v1internal:loadCodeAssist",
                         json=load_assist_payload,
                         headers=headers,
                     )
@@ -1099,7 +1099,7 @@ class CredentialManager:
                 while True:
                     async with http_client.get_client() as client:
                         onboard_resp = await client.post(
-                            f"{CODE_ASSIST_ENDPOINT}/v1internal:onboardUser",
+                            f"{get_code_assist_endpoint()}/v1internal:onboardUser",
                             json=onboard_req_payload,
                             headers=headers,
                         )

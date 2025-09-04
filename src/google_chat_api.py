@@ -10,7 +10,7 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 
 from config import (
-    CODE_ASSIST_ENDPOINT,
+    get_code_assist_endpoint,
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
     get_thinking_budget,
@@ -107,7 +107,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
     
     # 确定API端点
     action = "streamGenerateContent" if is_streaming else "generateContent"
-    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:{action}"
+    target_url = f"{get_code_assist_endpoint()}/v1internal:{action}"
     if is_streaming:
         target_url += "?alt=sse"
 
