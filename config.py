@@ -19,7 +19,7 @@ CREDENTIALS_DIR = os.getenv("CREDENTIALS_DIR", "./creds")
 AUTO_BAN_ENABLED = os.getenv("AUTO_BAN", "false").lower() in ("true", "1", "yes", "on")
 
 # 需要自动封禁的错误码 (可通过环境变量 AUTO_BAN_ERROR_CODES 覆盖)
-AUTO_BAN_ERROR_CODES = [400, 403]
+AUTO_BAN_ERROR_CODES = [400, 401, 403]
 
 
 # Default Safety Settings for Google API
