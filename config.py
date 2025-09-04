@@ -474,3 +474,27 @@ def get_metadata_service_url() -> str:
     Default: http://metadata.google.internal
     """
     return str(get_config_value("metadata_service_url", "http://metadata.google.internal", "METADATA_SERVICE_URL"))
+
+def get_resource_manager_api_url() -> str:
+    """
+    Get Google Cloud Resource Manager API URL setting.
+    
+    用于Google Cloud Resource Manager API的URL。
+    
+    Environment variable: RESOURCE_MANAGER_API_URL
+    TOML config key: resource_manager_api_url
+    Default: https://cloudresourcemanager.googleapis.com
+    """
+    return str(get_config_value("resource_manager_api_url", "https://cloudresourcemanager.googleapis.com", "RESOURCE_MANAGER_API_URL"))
+
+def get_service_usage_api_url() -> str:
+    """
+    Get Google Cloud Service Usage API URL setting.
+    
+    用于Google Cloud Service Usage API的URL。
+    
+    Environment variable: SERVICE_USAGE_API_URL
+    TOML config key: service_usage_api_url
+    Default: https://serviceusage.googleapis.com
+    """
+    return str(get_config_value("service_usage_api_url", "https://serviceusage.googleapis.com", "SERVICE_USAGE_API_URL"))

@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 
-from config import get_oauth_proxy_url, get_googleapis_proxy_url, get_metadata_service_url
+from config import get_oauth_proxy_url, get_googleapis_proxy_url, get_metadata_service_url, get_resource_manager_api_url, get_service_usage_api_url
 from log import log
 from .httpx_client import get_async, post_async
 
@@ -427,7 +427,8 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
             log.info(f"正在检查并启用服务: {service}")
             
             # 检查服务是否已启用
-            check_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}"
+            service_usage_base_url = get_service_usage_api_url()
+            check_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
             try:
                 check_response = await get_async(check_url, headers=headers)
                 if check_response.status_code == 200:
@@ -439,7 +440,7 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
                 log.debug(f"检查服务状态失败，将尝试启用: {e}")
             
             # 启用服务
-            enable_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}:enable"
+            enable_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}:enable"
             try:
                 enable_response = await post_async(enable_url, headers=headers, json={})
                 
@@ -477,7 +478,8 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
         }
         
         # 使用Resource Manager API的正确域名和端点
-        url = "https://cloudresourcemanager.googleapis.com/v1/projects"
+        resource_manager_base_url = get_resource_manager_api_url()
+        url = f"{resource_manager_base_url.rstrip('/')}/v1/projects"
         log.info(f"正在调用API: {url}")
         response = await get_async(url, headers=headers)
         
@@ -495,18 +497,6 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             ]
             log.info(f"获取到 {len(active_projects)} 个活跃项目")
             return active_projects
-        elif response.status_code == 403:
-            log.warning(f"没有权限访问项目列表: {response.text}")
-            # 尝试用户信息API来获取一些线索
-            try:
-                userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
-                userinfo_response = await get_async(userinfo_url, headers=headers)
-                if userinfo_response.status_code == 200:
-                    userinfo = userinfo_response.json()
-                    log.info(f"获取到用户信息: {userinfo.get('email')}")
-            except:
-                pass
-            return []
         else:
             log.warning(f"获取项目列表失败: {response.status_code} - {response.text}")
             return []
