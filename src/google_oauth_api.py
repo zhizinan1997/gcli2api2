@@ -427,8 +427,7 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
             log.info(f"正在检查并启用服务: {service}")
             
             # 检查服务是否已启用
-            googleapis_base_url = get_googleapis_proxy_url()
-            check_url = f"{googleapis_base_url.rstrip('/')}/serviceusage/v1/projects/{project_id}/services/{service}"
+            check_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}"
             try:
                 check_response = await get_async(check_url, headers=headers)
                 if check_response.status_code == 200:
@@ -440,7 +439,7 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
                 log.debug(f"检查服务状态失败，将尝试启用: {e}")
             
             # 启用服务
-            enable_url = f"{googleapis_base_url.rstrip('/')}/serviceusage/v1/projects/{project_id}/services/{service}:enable"
+            enable_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}:enable"
             try:
                 enable_response = await post_async(enable_url, headers=headers, json={})
                 
@@ -477,9 +476,8 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             "User-Agent": "geminicli-oauth/1.0",
         }
         
-        # 使用v3 API的projects:search端点
-        googleapis_base_url = get_googleapis_proxy_url()
-        url = f"{googleapis_base_url.rstrip('/')}/cloudresourcemanager/v3/projects:search"
+        # 使用Resource Manager API的正确域名和端点
+        url = "https://cloudresourcemanager.googleapis.com/v1/projects"
         log.info(f"正在调用API: {url}")
         response = await get_async(url, headers=headers)
         
@@ -493,7 +491,7 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             # 只返回活跃的项目
             active_projects = [
                 project for project in projects 
-                if project.get('state') == 'ACTIVE'
+                if project.get('lifecycleState') == 'ACTIVE'
             ]
             log.info(f"获取到 {len(active_projects)} 个活跃项目")
             return active_projects
