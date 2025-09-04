@@ -2,6 +2,8 @@
 
 **将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口**
 
+[English](docs/README_EN.md) | 中文
+
 ---
 
 ## ⚠️ 许可证声明
