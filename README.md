@@ -4,6 +4,9 @@
 
 [English](docs/README_EN.md) | 中文
 
+## 🚀 快速部署
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/FIBY1S?referralCode=su-kaka)
 ---
 
 ## ⚠️ 许可证声明

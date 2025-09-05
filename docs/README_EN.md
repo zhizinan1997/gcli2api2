@@ -4,6 +4,8 @@
 
 ---
 
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/FIBY1S?referralCode=su-kaka)
+
 ## ⚠️ License Declaration
 
 **This project is licensed under the Cooperative Non-Commercial License (CNC-1.0)**
