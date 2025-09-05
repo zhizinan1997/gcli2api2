@@ -148,7 +148,7 @@ This is a strict anti-commercial open source license. Please refer to the [LICEN
 
 ## Supported Models
 
-All models have 1M context window capacity. Each credential file provides 1500 request quota.
+All models have 1M context window capacity. Each credential file provides 1000 request quota.
 
 ### 🤖 Base Models
 - `gemini-2.5-pro`
