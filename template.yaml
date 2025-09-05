@@ -14,10 +14,10 @@ spec:
       type: STRING
       name: API密码
       description: 用于访问API和控制面板的密码
-    - key: PORT
-      type: STRING
-      name: 端口
-      description: 服务运行端口
+    - key: DOMAIN
+      type: DOMAIN
+      name: 域名
+      description: 服务访问域名
   readme: |
     # GeminiCLI to API
 
@@ -40,9 +40,11 @@ spec:
           PASSWORD:
             default: ${PASSWORD}
           PORT:
-            default: ${PORT}
+            default: "7861"
           HOST:
             default: "0.0.0.0"
+          DOMAIN:
+            default: ${DOMAIN}
         volumes:
           - id: creds
             dir: /app/creds
