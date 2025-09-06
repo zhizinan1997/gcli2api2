@@ -869,10 +869,10 @@ auth_tokens = {}  # 存储有效的认证令牌
 TOKEN_EXPIRY = 3600  # 1小时令牌过期时间
 
 
-def verify_password(password: str) -> bool:
+async def verify_password(password: str) -> bool:
     """验证密码（面板登录使用）"""
     from config import get_panel_password
-    correct_password = get_panel_password()
+    correct_password = await get_panel_password()
     return password == correct_password
 
 

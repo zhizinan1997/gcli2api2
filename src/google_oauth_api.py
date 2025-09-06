@@ -324,7 +324,7 @@ async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
     await credentials.refresh_if_needed()
     
     try:
-        googleapis_base_url = get_googleapis_proxy_url()
+        googleapis_base_url = await get_googleapis_proxy_url()
         userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
         response = await get_async(
             userinfo_url,
@@ -416,7 +416,7 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
             log.info(f"正在检查并启用服务: {service}")
             
             # 检查服务是否已启用
-            service_usage_base_url = get_service_usage_api_url()
+            service_usage_base_url = await get_service_usage_api_url()
             check_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
             try:
                 check_response = await get_async(check_url, headers=headers)
@@ -467,7 +467,7 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
         }
         
         # 使用Resource Manager API的正确域名和端点
-        resource_manager_base_url = get_resource_manager_api_url()
+        resource_manager_base_url = await get_resource_manager_api_url()
         url = f"{resource_manager_base_url.rstrip('/')}/v1/projects"
         log.info(f"正在调用API: {url}")
         response = await get_async(url, headers=headers)

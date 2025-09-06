@@ -223,7 +223,7 @@ async def serve_control_panel(request: Request):
 async def login(request: LoginRequest):
     """用户登录"""
     try:
-        if verify_password(request.password):
+        if await verify_password(request.password):
             token = generate_auth_token()
             return JSONResponse(content={"token": token, "message": "登录成功"})
         else:
