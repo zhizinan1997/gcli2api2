@@ -110,14 +110,16 @@ class UsageStats:
             return clean_model == "gemini-2.5-pro"
     
     async def _load_stats(self):
-        """Load statistics from unified storage - 优化为从统一存储适配器读取统计数据"""
+        """Load statistics from unified storage"""
         try:
             # 从统一存储获取所有使用统计
             all_usage_stats = await self._storage_adapter.get_all_usage_stats()
             
-            # 处理并缓存统计数据
-            self._stats_cache = {}
-            for filename, stats_data in all_usage_stats.items():
+            # 并发处理统计数据（如果数据量大的话）
+            import asyncio
+            
+            async def process_stats_item(filename, stats_data):
+                """并发处理单个统计项"""
                 if isinstance(stats_data, dict):
                     normalized_filename = self._normalize_filename(filename)
                     # 提取使用统计字段
@@ -128,9 +130,22 @@ class UsageStats:
                         "daily_limit_gemini_2_5_pro": stats_data.get("daily_limit_gemini_2_5_pro", 100),
                         "daily_limit_total": stats_data.get("daily_limit_total", 1000)
                     }
-                    # 只缓存有实际数据的统计
+                    # 只返回有实际数据的统计
                     if any(usage_data[k] for k in ["gemini_2_5_pro_calls", "total_calls", "next_reset_time"]):
-                        self._stats_cache[normalized_filename] = usage_data
+                        return normalized_filename, usage_data
+                return None, None
+            
+            # 始终使用并发处理所有统计项
+            log.debug(f"并发处理 {len(all_usage_stats)} 个使用统计项...")
+            tasks = [process_stats_item(filename, stats_data) 
+                    for filename, stats_data in all_usage_stats.items()]
+            results = await asyncio.gather(*tasks)
+            
+            # 组装结果
+            self._stats_cache = {}
+            for normalized_filename, usage_data in results:
+                if normalized_filename and usage_data:
+                    self._stats_cache[normalized_filename] = usage_data
             
             log.debug(f"Loaded usage statistics for {len(self._stats_cache)} credential files")
             
@@ -150,8 +165,11 @@ class UsageStats:
             return
             
         try:
-            # 批量更新使用统计到存储适配器
-            for filename, stats in self._stats_cache.items():
+            # 并发批量更新使用统计到存储适配器
+            import asyncio
+            
+            async def update_single_stats(filename, stats):
+                """并发更新单个统计项"""
                 stats_data = {
                     "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
                     "total_calls": stats.get("total_calls", 0),
@@ -159,7 +177,13 @@ class UsageStats:
                     "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
                     "daily_limit_total": stats.get("daily_limit_total", 1000)
                 }
-                await self._storage_adapter.update_usage_stats(filename, stats_data)
+                return await self._storage_adapter.update_usage_stats(filename, stats_data)
+            
+            # 始终使用并发更新所有统计项
+            log.debug(f"并发保存 {len(self._stats_cache)} 个使用统计项...")
+            tasks = [update_single_stats(filename, stats) 
+                    for filename, stats in self._stats_cache.items()]
+            await asyncio.gather(*tasks, return_exceptions=True)
                 
             self._cache_dirty = False  # 清除脏标记
             self._last_save_time = current_time
