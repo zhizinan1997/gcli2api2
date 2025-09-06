@@ -428,12 +428,48 @@ async def _handle_non_streaming_response(resp, credential_manager: CredentialMan
         return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
 
 
+def _validate_gemini_function_calls(contents: list) -> None:
+    """验证Gemini格式的函数调用是否正确匹配"""
+    function_calls = []
+    function_responses = []
+    
+    for content in contents:
+        parts = content.get("parts", [])
+        for part in parts:
+            if "functionCall" in part:
+                function_calls.append(part["functionCall"]["name"])
+            elif "functionResponse" in part:
+                function_responses.append(part["functionResponse"]["name"])
+    
+    if len(function_calls) != len(function_responses):
+        from log import log
+        log.error(f"Function call/response mismatch: {len(function_calls)} calls vs {len(function_responses)} responses")
+        log.error(f"Function calls: {function_calls}")
+        log.error(f"Function responses: {function_responses}")
+        raise ValueError(f"Function calls ({len(function_calls)}) and responses ({len(function_responses)}) count mismatch")
+    
+    if function_calls != function_responses:
+        from log import log
+        log.warning(f"Function call/response name order mismatch:")
+        log.warning(f"Calls: {function_calls}")
+        log.warning(f"Responses: {function_responses}")
+        # 这种情况可能仍然有效，只是顺序不同，所以只警告不抛出错误
+
 def build_gemini_payload_from_native(native_request: dict, model_from_path: str) -> dict:
     """
     Build a Gemini API payload from a native Gemini request with full pass-through support.
     """
     # 创建请求副本以避免修改原始数据
     request_data = native_request.copy()
+    
+    # 验证函数调用格式（如果存在）
+    if "contents" in request_data:
+        try:
+            _validate_gemini_function_calls(request_data["contents"])
+        except ValueError as e:
+            from log import log
+            log.error(f"Invalid Gemini function calling format: {e}")
+            raise
     
     # 应用默认安全设置（如果未指定）
     if "safetySettings" not in request_data:

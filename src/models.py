@@ -13,12 +13,34 @@ class ModelList(BaseModel):
     object: str = "list"
     data: List[Model]
 
+# OpenAI Function Calling Models
+class OpenAIFunctionCall(BaseModel):
+    name: str
+    arguments: str
+
+class OpenAIToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: OpenAIFunctionCall
+
+class OpenAIFunction(BaseModel):
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    strict: Optional[bool] = None
+
+class OpenAITool(BaseModel):
+    type: str = "function"
+    function: OpenAIFunction
+
 # OpenAI Models
 class OpenAIChatMessage(BaseModel):
     role: str
-    content: Union[str, List[Dict[str, Any]]]
+    content: Union[str, List[Dict[str, Any]], None] = None
     reasoning_content: Optional[str] = None
     name: Optional[str] = None
+    tool_calls: Optional[List[OpenAIToolCall]] = None
+    tool_call_id: Optional[str] = None
 
 class OpenAIChatCompletionRequest(BaseModel):
     model: str
@@ -35,6 +57,8 @@ class OpenAIChatCompletionRequest(BaseModel):
     response_format: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, ge=1)
     enable_anti_truncation: Optional[bool] = False
+    tools: Optional[List[OpenAITool]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     
     class Config:
         extra = "allow"  # Allow additional fields not explicitly defined
