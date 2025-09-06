@@ -16,7 +16,7 @@ from config import (
 from log import log
 from .models import ChatCompletionRequest
 
-def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str, Any]:
+async def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str, Any]:
     """
     将OpenAI聊天完成请求转换为Gemini格式
     
@@ -30,7 +30,7 @@ def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dict[str,
     system_instructions = []
     
     # 检查是否启用兼容性模式
-    compatibility_mode = get_compatibility_mode_enabled()
+    compatibility_mode = await get_compatibility_mode_enabled()
     
     # 处理对话中的每条消息
     # 第一阶段：收集连续的system消息到system_instruction中（除非在兼容性模式下）

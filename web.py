@@ -39,12 +39,22 @@ async def lifespan(app: FastAPI):
         log.error(f"凭证管理器初始化失败: {e}")
         global_credential_manager = None
     
-    # 自动从环境变量加载凭证
+    # 自动从环境变量加载凭证（异步执行）
     try:
         from src.auth import auto_load_env_credentials_on_startup
-        auto_load_env_credentials_on_startup()
+        import asyncio
+        
+        # 在后台任务中执行异步加载
+        async def load_env_creds():
+            try:
+                await auto_load_env_credentials_on_startup()
+            except Exception as e:
+                log.error(f"自动加载环境变量凭证失败: {e}")
+        
+        # 创建后台任务
+        asyncio.create_task(load_env_creds())
     except Exception as e:
-        log.error(f"自动加载环境变量凭证失败: {e}")
+        log.error(f"创建自动加载环境变量凭证任务失败: {e}")
     
     # OAuth回调服务器将在需要时按需启动
     
@@ -124,20 +134,25 @@ def get_credential_manager():
 # 导出给其他模块使用
 __all__ = ['app', 'get_credential_manager']
 
-if __name__ == "__main__":
+async def main():
+    """异步主启动函数"""
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
     
+    # 初始化日志配置
+    from log import init_log_config
+    await init_log_config()
+    
     # 从环境变量或配置获取端口和主机
-    port = get_server_port()
-    host = get_server_host()
+    port = await get_server_port()
+    host = await get_server_host()
     
     log.info("=" * 60)
-    log.info("🚀 启动 GCLI2API")
+    log.info("启动 GCLI2API")
     log.info("=" * 60)
-    log.info(f"🔧 控制面板: http://127.0.0.1:{port}")
+    log.info(f"控制面板: http://127.0.0.1:{port}")
     log.info("=" * 60)
-    log.info("🔗 API端点:")
+    log.info("API端点:")
     log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
     log.info(f"   Gemini原生: http://127.0.0.1:{port}")
 
@@ -157,4 +172,7 @@ if __name__ == "__main__":
     config.read_timeout = 300  # 5分钟读取超时
     config.write_timeout = 300  # 5分钟写入超时
 
-    asyncio.run(serve(app, config))
+    await serve(app, config)
+
+if __name__ == "__main__":
+    asyncio.run(main())

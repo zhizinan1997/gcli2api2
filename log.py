@@ -5,25 +5,27 @@ import sys
 import threading
 from datetime import datetime
 
-# 延迟导入配置，避免循环导入
-_config_imported = False
-_get_log_level = None
-_get_log_file = None
+# 日志系统启动时异步读取一次配置，不需要热更新
+_log_level = "debug"
+_log_file = "log.txt"
+_config_initialized = False
 
-def _import_config():
-    """延迟导入配置函数"""
-    global _config_imported, _get_log_level, _get_log_file
-    if not _config_imported:
-        try:
-            from config import get_log_level, get_log_file
-            _get_log_level = get_log_level
-            _get_log_file = get_log_file
-            _config_imported = True
-        except ImportError:
-            # 如果配置模块不可用，使用默认值
-            _get_log_level = lambda: "info"
-            _get_log_file = lambda: "log.txt"
-            _config_imported = True
+async def init_log_config():
+    """异步初始化日志配置（启动时调用一次）"""
+    global _log_level, _log_file, _config_initialized
+    if not _config_initialized:
+        from config import get_log_level, get_log_file
+        _log_level = await get_log_level()
+        _log_file = await get_log_file()
+        _config_initialized = True
+
+def _get_log_level_sync():
+    """获取日志级别"""
+    return _log_level
+
+def _get_log_file_sync():
+    """获取日志文件路径"""
+    return _log_file
 
 # 日志级别定义
 LOG_LEVELS = {
@@ -39,18 +41,16 @@ _file_lock = threading.Lock()
 
 def _get_current_log_level():
     """获取当前日志级别"""
-    _import_config()
     try:
-        level = _get_log_level().lower()
+        level = _get_log_level_sync().lower()
         return LOG_LEVELS.get(level, LOG_LEVELS['info'])
     except:
         return LOG_LEVELS['info']
 
 def _get_log_file_path():
     """获取日志文件路径"""
-    _import_config()
     try:
-        return _get_log_file()
+        return _get_log_file_sync()
     except:
         return "log.txt"
 

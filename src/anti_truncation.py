@@ -1,6 +1,6 @@
 """
 Anti-Truncation Module - Ensures complete streaming output
-根据修改指导要求，保持一个流式请求内完整输出的反截断模块
+保持一个流式请求内完整输出的反截断模块
 """
 import json
 import re

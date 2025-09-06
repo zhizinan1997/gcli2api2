@@ -30,9 +30,9 @@ class Credentials:
         self.expires_at = expires_at
         self.project_id = project_id
         
-        # 获取反代配置
-        self.oauth_base_url = get_oauth_proxy_url()
-        self.token_endpoint = f"{self.oauth_base_url.rstrip('/')}/token"
+        # 反代配置将在使用时异步获取
+        self.oauth_base_url = None
+        self.token_endpoint = None
     
     def is_expired(self) -> bool:
         """检查token是否过期"""
@@ -69,7 +69,7 @@ class Credentials:
         last_exception = None
         for attempt in range(max_retries + 1):
             try:
-                oauth_base_url = get_oauth_proxy_url()
+                oauth_base_url = await get_oauth_proxy_url()
                 token_url = f"{oauth_base_url.rstrip('/')}/token"
                 response = await post_async(
                     token_url,
@@ -162,9 +162,9 @@ class Flow:
         self.scopes = scopes
         self.redirect_uri = redirect_uri
         
-        # 获取反代配置
-        self.oauth_base_url = get_oauth_proxy_url()
-        self.token_endpoint = f"{self.oauth_base_url.rstrip('/')}/token"
+        # 反代配置将在使用时异步获取
+        self.oauth_base_url = None
+        self.token_endpoint = None
         self.auth_endpoint = "https://accounts.google.com/o/oauth2/auth"
         
         self.credentials: Optional[Credentials] = None
@@ -198,7 +198,7 @@ class Flow:
         }
         
         try:
-            oauth_base_url = get_oauth_proxy_url()
+            oauth_base_url = await get_oauth_proxy_url()
             token_url = f"{oauth_base_url.rstrip('/')}/token"
             response = await post_async(
                 token_url,
@@ -242,9 +242,9 @@ class ServiceAccount:
         self.project_id = project_id
         self.scopes = scopes or []
         
-        # 获取反代配置
-        self.oauth_base_url = get_oauth_proxy_url()
-        self.token_endpoint = f"{self.oauth_base_url.rstrip('/')}/token"
+        # 反代配置将在使用时异步获取
+        self.oauth_base_url = None
+        self.token_endpoint = None
         
         self.access_token: Optional[str] = None
         self.expires_at: Optional[datetime] = None
@@ -284,7 +284,7 @@ class ServiceAccount:
         }
         
         try:
-            oauth_base_url = get_oauth_proxy_url()
+            oauth_base_url = await get_oauth_proxy_url()
             token_url = f"{oauth_base_url.rstrip('/')}/token"
             response = await post_async(
                 token_url,
@@ -362,38 +362,27 @@ async def get_user_email(credentials: Credentials) -> Optional[str]:
         return None
 
 
-async def fetch_user_email_from_file(filepath: str) -> Optional[str]:
-    """从凭证文件获取用户邮箱地址"""
-    import json
-    import os
-    
+async def fetch_user_email_from_file(cred_data: Dict[str, Any]) -> Optional[str]:
+    """从凭证数据获取用户邮箱地址（支持统一存储）"""
     try:
-        # 加载凭证文件
-        if not os.path.exists(filepath):
-            log.warning(f"凭证文件不存在: {filepath}")
-            return None
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            cred_data = json.load(f)
-        
-        # 创建凭证对象
+        # 直接从凭证数据创建凭证对象
         credentials = Credentials.from_dict(cred_data)
         if not credentials or not credentials.access_token:
-            log.warning(f"无法加载凭证或获取访问令牌: {os.path.basename(filepath)}")
+            log.warning(f"无法从凭证数据创建凭证对象或获取访问令牌")
             return None
         
         # 获取邮箱
         return await get_user_email(credentials)
                 
     except Exception as e:
-        log.error(f"从文件获取用户邮箱失败 {os.path.basename(filepath)}: {e}")
+        log.error(f"从凭证数据获取用户邮箱失败: {e}")
         return None
 
 
 async def validate_token(token: str) -> Optional[Dict[str, Any]]:
     """验证访问令牌"""
     try:
-        oauth_base_url = get_oauth_proxy_url()
+        oauth_base_url = await get_oauth_proxy_url()
         tokeninfo_url = f"{oauth_base_url.rstrip('/')}/tokeninfo?access_token={token}"
         
         response = await get_async(tokeninfo_url)
