@@ -1091,9 +1091,9 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         await ensure_credential_manager_initialized()
         new_config = request.config
         
-        log.info(f"收到的配置数据: {list(new_config.keys())}")
-        log.info(f"收到的password值: {new_config.get('password', 'NOT_FOUND')}")
-        
+        log.debug(f"收到的配置数据: {list(new_config.keys())}")
+        log.debug(f"收到的password值: {new_config.get('password', 'NOT_FOUND')}")
+
         # 验证配置项
         if "calls_per_rotation" in new_config:
             if not isinstance(new_config["calls_per_rotation"], int) or new_config["calls_per_rotation"] < 1:
@@ -1198,14 +1198,13 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if key not in env_locked_keys:
                 existing_config[key] = value
                 if key == 'password':
-                    log.info(f"设置password字段为: {value}")
+                    log.debug(f"设置password字段为: {value}")
                 elif key == 'api_password':
-                    log.info(f"设置api_password字段为: {value}")
+                    log.debug(f"设置api_password字段为: {value}")
                 elif key == 'panel_password':
-                    log.info(f"设置panel_password字段为: {value}")
-        
-        log.info(f"最终保存的existing_config中password = {existing_config.get('password', 'NOT_FOUND')}")
-        
+                    log.debug(f"设置panel_password字段为: {value}")
+        log.debug(f"最终保存的existing_config中password = {existing_config.get('password', 'NOT_FOUND')}")
+
         # 直接使用存储适配器保存配置
         storage_adapter = await get_storage_adapter()
         for key, value in existing_config.items():
@@ -1215,9 +1214,9 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         test_api_password = await config.get_api_password()
         test_panel_password = await config.get_panel_password()
         test_password = await config.get_server_password()
-        log.info(f"保存后立即读取的API密码: {test_api_password}")
-        log.info(f"保存后立即读取的面板密码: {test_panel_password}")
-        log.info(f"保存后立即读取的通用密码: {test_password}")
+        log.debug(f"保存后立即读取的API密码: {test_api_password}")
+        log.debug(f"保存后立即读取的面板密码: {test_panel_password}")
+        log.debug(f"保存后立即读取的通用密码: {test_password}")
         
         # 热更新配置到内存中的模块（如果可能）
         hot_updated = []  # 记录成功热更新的配置项
