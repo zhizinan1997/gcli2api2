@@ -189,8 +189,6 @@ async def generate_content(
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
     
-    current_file, credential_data = credential_result
-    
     # 增加调用计数
     cred_mgr.increment_call_count()
     
@@ -290,8 +288,6 @@ async def stream_generate_content(
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
     
-    current_file, credential_data = credential_result
-    
     # 增加调用计数
     cred_mgr.increment_call_count()
     
@@ -376,8 +372,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
-            
-            current_file, credential_data = credential_result
             
             # 增加调用计数
             cred_mgr.increment_call_count()

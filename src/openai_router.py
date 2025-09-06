@@ -5,6 +5,7 @@ OpenAI Router - Handles OpenAI format API requests
 import json
 import time
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, HTTPException, Depends, Request, status
@@ -128,7 +129,7 @@ async def chat_completions(
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
     
-    current_file, credential_data = credential_result
+    current_file = credential_result
     log.debug(f"Using credential: {current_file}")
     
     # 增加调用计数
@@ -144,7 +145,7 @@ async def chat_completions(
     # 处理假流式
     if use_fake_streaming and getattr(request_data, "stream", False):
         request_data.stream = False
-        return await fake_stream_response(api_payload, cred_mgr, real_model)
+        return await fake_stream_response(api_payload, cred_mgr)
     
     # 处理抗截断 (仅流式传输时有效)
     is_streaming = getattr(request_data, "stream", False)
@@ -190,10 +191,8 @@ async def chat_completions(
         log.error(f"Response object: {response}")
         raise HTTPException(status_code=500, detail="Response conversion failed")
 
-async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager, model: str):
+async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -> StreamingResponse:
     """处理假流式响应"""
-    import asyncio
-    
     async def stream_generator():
         try:
             # 发送心跳
