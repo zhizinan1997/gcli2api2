@@ -169,6 +169,9 @@ async def main():
     config.keep_alive_timeout = 300  # 5分钟
     config.read_timeout = 300  # 5分钟读取超时
     config.write_timeout = 300  # 5分钟写入超时
+    
+    # 增加启动超时时间以支持大量凭证的场景
+    config.startup_timeout = 120  # 2分钟启动超时
 
     await serve(app, config)
 

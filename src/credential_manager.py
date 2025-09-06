@@ -125,12 +125,33 @@ class CredentialManager:
             # 从存储适配器获取所有凭证
             all_credentials = await self._storage_adapter.list_credentials()
             
-            # 过滤出可用的凭证（排除被禁用的）
+            # 过滤出可用的凭证（排除被禁用的）- 批量读取状态以提升性能
             available_credentials = []
-            for credential_name in all_credentials:
-                state = await self._storage_adapter.get_credential_state(credential_name)
-                if not state.get("disabled", False):
-                    available_credentials.append(credential_name)
+            
+            # 批量获取所有凭证状态，避免多次读取状态文件
+            if all_credentials:
+                try:
+                    all_states = await self._storage_adapter.get_all_credential_states()
+                    
+                    for credential_name in all_credentials:
+                        normalized_name = credential_name
+                        # 标准化文件名以匹配状态数据中的键
+                        if hasattr(self._storage_adapter._backend, '_normalize_filename'):
+                            normalized_name = self._storage_adapter._backend._normalize_filename(credential_name)
+                        
+                        state = all_states.get(normalized_name, {})
+                        if not state.get("disabled", False):
+                            available_credentials.append(credential_name)
+                except Exception as e:
+                    log.warning(f"Failed to batch load credential states, falling back to individual checks: {e}")
+                    # 如果批量读取失败，回退到逐个检查
+                    for credential_name in all_credentials:
+                        try:
+                            state = await self._storage_adapter.get_credential_state(credential_name)
+                            if not state.get("disabled", False):
+                                available_credentials.append(credential_name)
+                        except Exception as e2:
+                            log.warning(f"Failed to check state for credential {credential_name}: {e2}")
             
             # 更新凭证列表
             old_credentials = set(self._credential_files)
