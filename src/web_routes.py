@@ -585,7 +585,7 @@ async def get_creds_status(token: str = Depends(verify_token)):
                     }
                     await storage_adapter.update_credential_state(filename, default_state)
                     file_status = default_state
-                    log.info(f"为凭证 {filename} 创建了默认状态记录")
+                    log.debug(f"为凭证 {filename} 创建了默认状态记录")
                 except Exception as e:
                     log.warning(f"无法为凭证 {filename} 创建状态记录: {e}")
                     # 创建临时状态用于显示
