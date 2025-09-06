@@ -106,11 +106,15 @@ class FileStorageBackend:
         
         # 获取凭证目录配置（初始化时直接使用环境变量，避免循环依赖）
         self._credentials_dir = os.getenv("CREDENTIALS_DIR", "./creds")
-        self._state_file = os.path.join(self._credentials_dir, "creds_state.toml")
+        self._state_file = os.path.join(self._credentials_dir, "creds.toml")
         self._config_file = os.path.join(self._credentials_dir, "config.toml")
         
         # 确保目录存在
         os.makedirs(self._credentials_dir, exist_ok=True)
+        
+        # 执行JSON到TOML的迁移
+        await self._migrate_json_to_toml()
+        
         self._initialized = True
         log.debug("File storage backend initialized")
     
@@ -123,10 +127,175 @@ class FileStorageBackend:
         """标准化文件名"""
         return os.path.basename(filename)
     
-    def _get_credential_path(self, filename: str) -> str:
-        """获取凭证文件完整路径"""
-        filename = self._normalize_filename(filename)
-        return os.path.join(self._credentials_dir, filename)
+    async def _migrate_json_to_toml(self) -> None:
+        """将现有的JSON凭证文件和旧的creds_state.toml迁移到新的creds.toml文件中"""
+        try:
+            # 扫描JSON凭证文件
+            json_files = []
+            if os.path.exists(self._credentials_dir):
+                for filename in os.listdir(self._credentials_dir):
+                    if filename.endswith(".json"):
+                        json_files.append(filename)
+            
+            # 检查旧的creds_state.toml文件
+            old_state_file = os.path.join(self._credentials_dir, "creds_state.toml")
+            has_old_state = os.path.exists(old_state_file)
+            
+            if not json_files and not has_old_state:
+                log.debug("No JSON credential files or old state file found for migration")
+                return
+            
+            # 加载现有TOML数据（如果存在）
+            toml_data = await self._load_toml_file(self._state_file)
+            
+            # 加载旧的creds_state.toml文件（稍后处理）
+            old_state_data = {}
+            if has_old_state:
+                try:
+                    old_state_data = await self._load_toml_file(old_state_file)
+                    log.debug("Loaded old state file for potential migration")
+                except Exception as e:
+                    log.error(f"Failed to load old state file: {e}")
+                    old_state_data = {}
+            
+            if json_files:
+                log.info(f"Migrating {len(json_files)} JSON credential files to TOML")
+            
+            # 处理每个JSON文件
+            migrated_count = 0
+            for filename in json_files:
+                try:
+                    filepath = os.path.join(self._credentials_dir, filename)
+                    
+                    # 读取JSON凭证数据
+                    async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+                        json_content = await f.read()
+                    credential_data = json.loads(json_content)
+                    
+                    # 创建新的section：凭证数据 + 状态数据
+                    section_data = credential_data.copy()
+                    
+                    # 首先添加默认状态数据
+                    default_state = {
+                        "error_codes": [],
+                        "disabled": False,
+                        "last_success": time.time(),
+                        "user_email": None,
+                        "gemini_2_5_pro_calls": 0,
+                        "total_calls": 0,
+                        "next_reset_time": None,
+                        "daily_limit_gemini_2_5_pro": 100,
+                        "daily_limit_total": 1000
+                    }
+                    section_data.update(default_state)
+                    
+                    # 如果旧状态文件中有该凭证的状态数据，则使用旧状态数据覆盖默认值
+                    if filename in old_state_data and isinstance(old_state_data[filename], dict):
+                        log.debug(f"Using old state data for: {filename}")
+                        section_data.update(old_state_data[filename])
+                    
+                    # 如果当前TOML中已存在该凭证，保留其状态数据
+                    if filename in toml_data and isinstance(toml_data[filename], dict):
+                        log.debug(f"Merging with existing TOML state for: {filename}")
+                        existing_state = toml_data[filename]
+                        section_data.update(existing_state)
+                    
+                    # 最后确保凭证数据是最新的（覆盖任何冲突的字段）
+                    section_data.update(credential_data)
+                    
+                    toml_data[filename] = section_data
+                    
+                    migrated_count += 1
+                    log.debug(f"Migrated credential: {filename}")
+                    
+                except Exception as e:
+                    log.error(f"Failed to migrate {filename}: {e}")
+                    continue
+            
+            # 保存TOML文件（如果有新的迁移）
+            if migrated_count > 0:
+                if await self._save_toml_file(self._state_file, toml_data):
+                    # 删除已迁移的JSON文件
+                    for filename in json_files:
+                        try:
+                            if filename in toml_data:  # 确保文件确实被迁移了
+                                filepath = os.path.join(self._credentials_dir, filename)
+                                os.remove(filepath)
+                                log.debug(f"Removed migrated JSON file: {filename}")
+                        except Exception as e:
+                            log.warning(f"Failed to remove {filename}: {e}")
+                    
+                    # 删除旧的creds_state.toml文件（无论是否用到了其中的数据）
+                    if has_old_state:
+                        try:
+                            os.remove(old_state_file)
+                            log.info("Removed old creds_state.toml file")
+                        except Exception as e:
+                            log.warning(f"Failed to remove old state file: {e}")
+                    
+                    log.info(f"Successfully migrated {migrated_count} JSON credentials to creds.toml")
+                else:
+                    log.error("Failed to save TOML file during migration")
+            else:
+                # 如果只有旧状态文件但没有JSON文件，直接删除旧文件（因为没有对应的凭证）
+                if has_old_state:
+                    try:
+                        os.remove(old_state_file)
+                        log.info("Removed old creds_state.toml file (no corresponding JSON credentials found)")
+                    except Exception as e:
+                        log.warning(f"Failed to remove old state file: {e}")
+                else:
+                    log.debug("No content to migrate")
+                
+        except Exception as e:
+            log.error(f"Error during JSON to TOML migration: {e}")
+    
+    
+    async def export_credential_to_json(self, filename: str, output_path: str = None) -> bool:
+        """将TOML中的凭证导出为JSON文件（用于兼容性和备份）"""
+        self._ensure_initialized()
+        
+        try:
+            credential_data = await self.get_credential(filename)
+            if credential_data is None:
+                log.error(f"Credential not found: {filename}")
+                return False
+            
+            if output_path is None:
+                output_path = os.path.join(self._credentials_dir, filename)
+            
+            async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(credential_data, indent=2, ensure_ascii=False))
+            
+            log.debug(f"Exported credential to JSON: {filename}")
+            return True
+            
+        except Exception as e:
+            log.error(f"Error exporting credential {filename}: {e}")
+            return False
+    
+    async def import_credential_from_json(self, json_path: str, filename: str = None) -> bool:
+        """从JSON文件导入凭证到TOML（用于兼容性）"""
+        self._ensure_initialized()
+        
+        try:
+            if not os.path.exists(json_path):
+                log.error(f"JSON file not found: {json_path}")
+                return False
+                
+            async with aiofiles.open(json_path, "r", encoding="utf-8") as f:
+                content = await f.read()
+            
+            credential_data = json.loads(content)
+            
+            if filename is None:
+                filename = os.path.basename(json_path)
+            
+            return await self.store_credential(filename, credential_data)
+            
+        except Exception as e:
+            log.error(f"Error importing credential from {json_path}: {e}")
+            return False
     
     async def _load_toml_file(self, file_path: str) -> Dict[str, Any]:
         """加载TOML文件"""
@@ -154,34 +323,72 @@ class FileStorageBackend:
     # ============ 凭证管理 ============
     
     async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
-        """存储凭证数据到JSON文件"""
+        """存储凭证数据到TOML文件"""
         self._ensure_initialized()
         
-        try:
-            credential_path = self._get_credential_path(filename)
-            async with aiofiles.open(credential_path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(credential_data, indent=2, ensure_ascii=False))
-            
-            log.debug(f"Stored credential: {filename}")
-            return True
-            
-        except Exception as e:
-            log.error(f"Error storing credential {filename}: {e}")
-            return False
+        async with self._lock:
+            try:
+                filename = self._normalize_filename(filename)
+                toml_data = await self._load_toml_file(self._state_file)
+                
+                
+                # 获取现有状态数据（如果存在）
+                existing_state = toml_data.get(filename, {})
+                
+                # 创建新的section数据：凭证数据 + 状态数据
+                section_data = credential_data.copy()
+                
+                # 保留现有的状态数据，或使用默认值
+                default_state = {
+                    "error_codes": [],
+                    "disabled": False,
+                    "last_success": time.time(),
+                    "user_email": None,
+                    "gemini_2_5_pro_calls": 0,
+                    "total_calls": 0,
+                    "next_reset_time": None,
+                    "daily_limit_gemini_2_5_pro": 100,
+                    "daily_limit_total": 1000
+                }
+                
+                # 合并：先用默认状态，再用现有状态，最后加入凭证数据
+                final_data = default_state.copy()
+                final_data.update(existing_state)
+                final_data.update(credential_data)  # 凭证数据覆盖状态数据中的同名字段
+                
+                toml_data[filename] = final_data
+                
+                success = await self._save_toml_file(self._state_file, toml_data)
+                if success:
+                    log.debug(f"Stored credential: {filename}")
+                return success
+                
+            except Exception as e:
+                log.error(f"Error storing credential {filename}: {e}")
+                return False
     
     async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
-        """从JSON文件获取凭证数据"""
+        """从TOML文件获取凭证数据"""
         self._ensure_initialized()
         
         try:
-            credential_path = self._get_credential_path(filename)
-            if not os.path.exists(credential_path):
+            filename = self._normalize_filename(filename)
+            toml_data = await self._load_toml_file(self._state_file)
+            
+            if filename not in toml_data:
                 return None
             
-            async with aiofiles.open(credential_path, "r", encoding="utf-8") as f:
-                content = await f.read()
+            section_data = toml_data[filename]
             
-            return json.loads(content)
+            # 提取凭证数据（排除状态字段）
+            state_fields = {
+                "error_codes", "disabled", "last_success", "user_email",
+                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
+                "daily_limit_gemini_2_5_pro", "daily_limit_total"
+            }
+            
+            credential_data = {k: v for k, v in section_data.items() if k not in state_fields}
+            return credential_data
             
         except Exception as e:
             log.error(f"Error getting credential {filename}: {e}")
@@ -192,14 +399,10 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            if not os.path.exists(self._credentials_dir):
-                return []
+            toml_data = await self._load_toml_file(self._state_file)
             
-            credentials = []
-            for filename in os.listdir(self._credentials_dir):
-                if filename.endswith(".json"):
-                    credentials.append(filename)
-            
+            # 返回所有section名称
+            credentials = list(toml_data.keys())
             return sorted(credentials)
             
         except Exception as e:
@@ -207,22 +410,28 @@ class FileStorageBackend:
             return []
     
     async def delete_credential(self, filename: str) -> bool:
-        """删除凭证文件"""
+        """从TOML文件删除凭证"""
         self._ensure_initialized()
         
-        try:
-            credential_path = self._get_credential_path(filename)
-            if os.path.exists(credential_path):
-                os.remove(credential_path)
-                log.debug(f"Deleted credential: {filename}")
-                return True
-            else:
-                log.warning(f"Credential file not found: {filename}")
-                return False
+        async with self._lock:
+            try:
+                filename = self._normalize_filename(filename)
+                toml_data = await self._load_toml_file(self._state_file)
                 
-        except Exception as e:
-            log.error(f"Error deleting credential {filename}: {e}")
-            return False
+                if filename in toml_data:
+                    del toml_data[filename]
+                    
+                    success = await self._save_toml_file(self._state_file, toml_data)
+                    if success:
+                        log.debug(f"Deleted credential: {filename}")
+                    return success
+                else:
+                    log.warning(f"Credential not found: {filename}")
+                    return False
+                    
+            except Exception as e:
+                log.error(f"Error deleting credential {filename}: {e}")
+                return False
     
     # ============ 状态管理 ============
     
@@ -233,14 +442,26 @@ class FileStorageBackend:
         async with self._lock:
             try:
                 filename = self._normalize_filename(filename)
-                state_data = await self._load_toml_file(self._state_file)
+                toml_data = await self._load_toml_file(self._state_file)
                 
-                if filename not in state_data:
-                    state_data[filename] = {}
+                if filename not in toml_data:
+                    # 如果凭证不存在，创建一个空的section（包含基本状态数据）
+                    toml_data[filename] = {
+                        "error_codes": [],
+                        "disabled": False,
+                        "last_success": time.time(),
+                        "user_email": None,
+                        "gemini_2_5_pro_calls": 0,
+                        "total_calls": 0,
+                        "next_reset_time": None,
+                        "daily_limit_gemini_2_5_pro": 100,
+                        "daily_limit_total": 1000
+                    }
                 
-                state_data[filename].update(state_updates)
+                # 更新状态数据
+                toml_data[filename].update(state_updates)
                 
-                return await self._save_toml_file(self._state_file, state_data)
+                return await self._save_toml_file(self._state_file, toml_data)
                 
             except Exception as e:
                 log.error(f"Error updating credential state {filename}: {e}")
@@ -252,14 +473,40 @@ class FileStorageBackend:
         
         try:
             filename = self._normalize_filename(filename)
-            state_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file(self._state_file)
             
-            return state_data.get(filename, {
+            if filename not in toml_data:
+                return {
+                    "error_codes": [],
+                    "disabled": False,
+                    "last_success": time.time(),
+                    "user_email": None,
+                }
+            
+            section_data = toml_data[filename]
+            
+            # 提取状态字段
+            state_fields = {
+                "error_codes", "disabled", "last_success", "user_email",
+                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
+                "daily_limit_gemini_2_5_pro", "daily_limit_total"
+            }
+            
+            state_data = {k: v for k, v in section_data.items() if k in state_fields}
+            
+            # 确保必要字段存在
+            defaults = {
                 "error_codes": [],
                 "disabled": False,
                 "last_success": time.time(),
                 "user_email": None,
-            })
+            }
+            
+            for key, default_value in defaults.items():
+                if key not in state_data:
+                    state_data[key] = default_value
+            
+            return state_data
             
         except Exception as e:
             log.error(f"Error getting credential state {filename}: {e}")
@@ -275,7 +522,22 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            return await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file(self._state_file)
+            
+            # 提取状态字段
+            state_fields = {
+                "error_codes", "disabled", "last_success", "user_email",
+                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
+                "daily_limit_gemini_2_5_pro", "daily_limit_total"
+            }
+            
+            states = {}
+            for filename, section_data in toml_data.items():
+                state_data = {k: v for k, v in section_data.items() if k in state_fields}
+                states[filename] = state_data
+            
+            return states
+            
         except Exception as e:
             log.error(f"Error getting all credential states: {e}")
             return {}
@@ -509,6 +771,47 @@ class StorageAdapter:
         return await self._backend.get_all_usage_stats()
     
     # ============ 工具方法 ============
+    
+    async def export_credential_to_json(self, filename: str, output_path: str = None) -> bool:
+        """将凭证导出为JSON文件"""
+        self._ensure_initialized()
+        if hasattr(self._backend, 'export_credential_to_json'):
+            return await self._backend.export_credential_to_json(filename, output_path)
+        # MongoDB后端的fallback实现
+        credential_data = await self.get_credential(filename)
+        if credential_data is None:
+            return False
+        
+        if output_path is None:
+            output_path = f"{filename}.json"
+        
+        import aiofiles
+        try:
+            async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(credential_data, indent=2, ensure_ascii=False))
+            return True
+        except Exception:
+            return False
+    
+    async def import_credential_from_json(self, json_path: str, filename: str = None) -> bool:
+        """从JSON文件导入凭证"""
+        self._ensure_initialized()
+        if hasattr(self._backend, 'import_credential_from_json'):
+            return await self._backend.import_credential_from_json(json_path, filename)
+        # MongoDB后端的fallback实现
+        try:
+            import aiofiles
+            async with aiofiles.open(json_path, "r", encoding="utf-8") as f:
+                content = await f.read()
+            
+            credential_data = json.loads(content)
+            
+            if filename is None:
+                filename = os.path.basename(json_path)
+            
+            return await self.store_credential(filename, credential_data)
+        except Exception:
+            return False
     
     def get_backend_type(self) -> str:
         """获取当前存储后端类型"""
