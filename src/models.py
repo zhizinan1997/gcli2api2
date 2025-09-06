@@ -80,6 +80,7 @@ class OpenAIChatCompletionStreamResponse(BaseModel):
 class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
+    fileData: Optional[Dict[str, Any]] = None
     thought: Optional[bool] = False
 
 class GeminiContent(BaseModel):
@@ -96,6 +97,7 @@ class GeminiGenerationConfig(BaseModel):
     maxOutputTokens: Optional[int] = Field(None, ge=1)
     stopSequences: Optional[List[str]] = None
     responseMimeType: Optional[str] = None
+    responseSchema: Optional[Dict[str, Any]] = None
     candidateCount: Optional[int] = Field(None, ge=1, le=8)
     seed: Optional[int] = None
     frequencyPenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
@@ -115,6 +117,9 @@ class GeminiRequest(BaseModel):
     toolConfig: Optional[Dict[str, Any]] = None
     cachedContent: Optional[str] = None
     enable_anti_truncation: Optional[bool] = False
+    
+    class Config:
+        extra = "allow"  # 允许透传未定义的字段
 
 class GeminiCandidate(BaseModel):
     content: GeminiContent

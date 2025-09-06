@@ -467,32 +467,52 @@ def build_gemini_payload_from_openai(openai_payload: dict) -> dict:
 
 def build_gemini_payload_from_native(native_request: dict, model_from_path: str) -> dict:
     """
-    Build a Gemini API payload from a native Gemini request.
+    Build a Gemini API payload from a native Gemini request with full pass-through support.
     """
-    native_request["safetySettings"] = DEFAULT_SAFETY_SETTINGS
+    # 创建请求副本以避免修改原始数据
+    request_data = native_request.copy()
     
-    if "generationConfig" not in native_request:
-        native_request["generationConfig"] = {}
+    # 应用默认安全设置（如果未指定）
+    if "safetySettings" not in request_data:
+        request_data["safetySettings"] = DEFAULT_SAFETY_SETTINGS
     
-    if "thinkingConfig" not in native_request["generationConfig"]:
-        native_request["generationConfig"]["thinkingConfig"] = {}
+    # 确保generationConfig存在
+    if "generationConfig" not in request_data:
+        request_data["generationConfig"] = {}
     
-    # 配置thinking
-    thinking_budget = get_thinking_budget(model_from_path)
-    include_thoughts = should_include_thoughts(model_from_path)
+    generation_config = request_data["generationConfig"]
     
-    native_request["generationConfig"]["thinkingConfig"]["includeThoughts"] = include_thoughts
-    native_request["generationConfig"]["thinkingConfig"]["thinkingBudget"] = thinking_budget
+    # 配置thinking（如果未指定thinkingConfig）
+    if "thinkingConfig" not in generation_config:
+        generation_config["thinkingConfig"] = {}
     
-    # Add Google Search grounding for search models
+    thinking_config = generation_config["thinkingConfig"]
+    
+    # 只有在未明确设置时才应用默认thinking配置
+    if "includeThoughts" not in thinking_config:
+        thinking_config["includeThoughts"] = should_include_thoughts(model_from_path)
+    if "thinkingBudget" not in thinking_config:
+        thinking_config["thinkingBudget"] = get_thinking_budget(model_from_path)
+    
+    # 为搜索模型添加Google Search工具（如果未指定）
     if is_search_model(model_from_path):
-        if "tools" not in native_request:
-            native_request["tools"] = []
-        # Add googleSearch tool if not already present
-        if not any(tool.get("googleSearch") for tool in native_request["tools"]):
-            native_request["tools"].append({"googleSearch": {}})
+        if "tools" not in request_data:
+            request_data["tools"] = []
+        # 只有在没有googleSearch工具时才添加
+        if not any(tool.get("googleSearch") for tool in request_data["tools"]):
+            request_data["tools"].append({"googleSearch": {}})
+    
+    # 透传所有其他Gemini原生字段:
+    # - contents (必需)
+    # - systemInstruction (可选)
+    # - generationConfig (已处理)
+    # - safetySettings (已处理)  
+    # - tools (已处理)
+    # - toolConfig (透传)
+    # - cachedContent (透传)
+    # - 以及任何其他未知字段都会被透传
     
     return {
         "model": get_base_model_name(model_from_path),
-        "request": native_request
+        "request": request_data
     }
