@@ -163,31 +163,6 @@ async def get_retry_429_interval() -> float:
     
     return float(await get_config_value("retry_429_interval", 1))
 
-async def get_log_level() -> str:
-    """
-    Get log level.
-    
-    Environment variable: LOG_LEVEL
-    TOML config key: log_level
-    Default: info
-    Valid values: debug, info, warning, error, critical
-    """
-    level = await get_config_value("log_level", "info", "LOG_LEVEL")
-    if isinstance(level, str):
-        level = level.lower()
-        if level in ["debug", "info", "warning", "error", "critical"]:
-            return level
-    return "info"
-
-async def get_log_file() -> str:
-    """
-    Get log file path.
-    
-    Environment variable: LOG_FILE
-    TOML config key: log_file
-    Default: log.txt
-    """
-    return str(await get_config_value("log_file", "log.txt", "LOG_FILE"))
 
 # Model name lists for different features
 BASE_MODELS = [

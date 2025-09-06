@@ -1003,9 +1003,6 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["retry_429_enabled"] = await config.get_retry_429_enabled()
         current_config["retry_429_interval"] = await config.get_retry_429_interval()
         
-        # 日志配置
-        current_config["log_level"] = await config.get_log_level()
-        current_config["log_file"] = await config.get_log_file()
         
         # 抗截断配置
         current_config["anti_truncation_max_attempts"] = await config.get_anti_truncation_max_attempts()
@@ -1027,10 +1024,6 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("retry_429_enabled")
         if os.getenv("RETRY_429_INTERVAL"):
             env_locked.append("retry_429_interval")
-        if os.getenv("LOG_LEVEL"):
-            env_locked.append("log_level")
-        if os.getenv("LOG_FILE"):
-            env_locked.append("log_file")
         if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
             env_locked.append("anti_truncation_max_attempts")
         if os.getenv("COMPATIBILITY_MODE"):
@@ -1089,10 +1082,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             except (ValueError, TypeError):
                 raise HTTPException(status_code=400, detail="429重试间隔必须是有效的数字")
         
-        if "log_level" in new_config:
-            valid_levels = ["debug", "info", "warning", "error", "critical"]
-            if new_config["log_level"].lower() not in valid_levels:
-                raise HTTPException(status_code=400, detail=f"日志级别必须是以下之一: {', '.join(valid_levels)}")
         
         if "anti_truncation_max_attempts" in new_config:
             if not isinstance(new_config["anti_truncation_max_attempts"], int) or new_config["anti_truncation_max_attempts"] < 1 or new_config["anti_truncation_max_attempts"] > 10:
@@ -1155,10 +1144,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("retry_429_enabled")
         if os.getenv("RETRY_429_INTERVAL"):
             env_locked_keys.add("retry_429_interval")
-        if os.getenv("LOG_LEVEL"):
-            env_locked_keys.add("log_level")
-        if os.getenv("LOG_FILE"):
-            env_locked_keys.add("log_file")
         if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
             env_locked_keys.add("anti_truncation_max_attempts")
         if os.getenv("COMPATIBILITY_MODE"):
@@ -1235,25 +1220,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 if config_key in new_config and config_key not in env_locked_keys:
                     hot_updated.append(config_key)
 
-            # 3. 日志配置（部分热更新）
-            # 注意：日志级别可以热更新，但日志文件路径需要重启
-            log_config_changed = False
-            if "log_level" in new_config and "log_level" not in env_locked_keys:
-                hot_updated.append("log_level")
-                log_config_changed = True
-            
-            if "log_file" in new_config and "log_file" not in env_locked_keys:
-                restart_required.append("log_file")
-                log_config_changed = True
-            
-            # 如果日志配置发生变化，触发日志系统重载
-            if log_config_changed:
-                try:
-                    from log import log as logger
-                    await logger.reload_config()
-                    log.info("日志配置已自动重载")
-                except Exception as e:
-                    log.warning(f"自动重载日志配置失败: {e}")
 
             # 4. 其他可热更新的配置项
             hot_updatable_configs = [
@@ -1266,13 +1232,13 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 if config_key in new_config and config_key not in env_locked_keys:
                     hot_updated.append(config_key)
             
-            # 5. 需要重启的配置项
+            # 4. 需要重启的配置项
             restart_required_configs = ["host", "port"]
             for config_key in restart_required_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
                     restart_required.append(config_key)
             
-            # 6. 密码配置（立即生效）
+            # 5. 密码配置（立即生效）
             password_configs = ["api_password", "panel_password", "password"]
             for config_key in password_configs:
                 if config_key in new_config and config_key not in env_locked_keys:
@@ -1384,14 +1350,15 @@ async def get_env_creds_status(token: str = Depends(verify_token)):
 
 
 # =============================================================================
-# 实时日志WebSocket (Real-time Logs WebSocket)
+# 实时日志WebSocket (Real-time Logs WebSocket)  
 # =============================================================================
 
 @router.post("/auth/logs/clear")
 async def clear_logs(token: str = Depends(verify_token)):
     """清空日志文件"""
     try:
-        log_file_path = await config.get_log_file()
+        # 直接使用环境变量获取日志文件路径
+        log_file_path = os.getenv('LOG_FILE', 'log.txt')
         
         # 检查日志文件是否存在
         if os.path.exists(log_file_path):
@@ -1420,7 +1387,8 @@ async def clear_logs(token: str = Depends(verify_token)):
 async def download_logs(token: str = Depends(verify_token)):
     """下载日志文件"""
     try:
-        log_file_path = await config.get_log_file()
+        # 直接使用环境变量获取日志文件路径
+        log_file_path = os.getenv('LOG_FILE', 'log.txt')
         
         # 检查日志文件是否存在
         if not os.path.exists(log_file_path):
@@ -1458,8 +1426,8 @@ async def websocket_logs(websocket: WebSocket):
         return
     
     try:
-        # 从配置获取日志文件路径
-        log_file_path = await config.get_log_file()
+        # 直接使用环境变量获取日志文件路径
+        log_file_path = os.getenv('LOG_FILE', 'log.txt')
         
         # 发送初始日志（限制为最后50行，减少内存占用）
         if os.path.exists(log_file_path):

@@ -139,9 +139,7 @@ async def main():
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
     
-    # 初始化日志配置
-    from log import init_log_config
-    await init_log_config()
+    # 日志系统现在直接使用环境变量，无需初始化
     
     # 从环境变量或配置获取端口和主机
     port = await get_server_port()

@@ -7,13 +7,12 @@ import os
 import json
 import time
 import hashlib
-from typing import Dict, Any, List, Optional, Protocol, Union, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
 from dataclasses import dataclass, field
 from collections import OrderedDict
-import weakref
 
 import aiofiles
 import toml
