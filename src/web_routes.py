@@ -1237,11 +1237,23 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
 
             # 3. 日志配置（部分热更新）
             # 注意：日志级别可以热更新，但日志文件路径需要重启
+            log_config_changed = False
             if "log_level" in new_config and "log_level" not in env_locked_keys:
                 hot_updated.append("log_level")
+                log_config_changed = True
             
             if "log_file" in new_config and "log_file" not in env_locked_keys:
                 restart_required.append("log_file")
+                log_config_changed = True
+            
+            # 如果日志配置发生变化，触发日志系统重载
+            if log_config_changed:
+                try:
+                    from log import log as logger
+                    await logger.reload_config()
+                    log.info("日志配置已自动重载")
+                except Exception as e:
+                    log.warning(f"自动重载日志配置失败: {e}")
 
             # 4. 其他可热更新的配置项
             hot_updatable_configs = [
