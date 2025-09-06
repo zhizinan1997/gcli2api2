@@ -6,7 +6,9 @@ import asyncio
 import os
 import json
 import time
-from typing import Dict, Any, List, Optional, Protocol, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Protocol, TYPE_CHECKING, Set
+from collections import deque
+from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     pass
@@ -15,6 +17,15 @@ import aiofiles
 import toml
 
 from log import log
+
+
+@dataclass
+class WriteOperation:
+    """写入操作数据结构"""
+    file_path: str
+    data: Dict[str, Any]
+    timestamp: float = field(default_factory=time.time)
+    operation_type: str = "update"  # update, delete
 
 
 class StorageBackend(Protocol):
@@ -90,7 +101,7 @@ class StorageBackend(Protocol):
 
 
 class FileStorageBackend:
-    """基于本地文件的存储后端"""
+    """基于本地文件的存储后端（优化版：支持队列写入）"""
     
     def __init__(self):
         self._credentials_dir = None  # 将通过异步初始化设置
@@ -98,6 +109,20 @@ class FileStorageBackend:
         self._config_file = None
         self._lock = asyncio.Lock()
         self._initialized = False
+        
+        # 队列写入相关
+        self._write_queue: deque = deque()
+        self._write_cache: Dict[str, Dict[str, Any]] = {}  # 内存缓存
+        self._config_cache: Dict[str, Any] = {}  # 配置缓存
+        self._dirty_files: Set[str] = set()  # 标记需要写入的文件
+        self._queue_lock = asyncio.Lock()
+        self._write_task: Optional[asyncio.Task] = None
+        self._shutdown_event = asyncio.Event()
+        
+        # 配置参数
+        self._write_delay = 0.5  # 写入延迟（秒）
+        self._max_queue_size = 100  # 最大队列大小
+        self._batch_size = 10  # 批量写入大小
     
     async def initialize(self) -> None:
         """初始化文件存储"""
@@ -115,13 +140,22 @@ class FileStorageBackend:
         # 执行JSON到TOML的迁移
         await self._migrate_json_to_toml()
         
+        # 启动写入队列处理任务
+        await self._start_write_queue_processor()
+        
         self._initialized = True
-        log.debug("File storage backend initialized")
+        log.debug("File storage backend initialized with queue writing")
     
     async def close(self) -> None:
         """关闭文件存储"""
+        # 停止写入队列处理
+        await self._stop_write_queue_processor()
+        
+        # 刷新所有待写入数据
+        await self._flush_all_caches()
+        
         self._initialized = False
-        log.debug("File storage backend closed")
+        log.debug("File storage backend closed with queue flushed")
     
     def _normalize_filename(self, filename: str) -> str:
         """标准化文件名"""
@@ -146,7 +180,7 @@ class FileStorageBackend:
                 return
             
             # 加载现有TOML数据（如果存在）
-            toml_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             # 加载旧的creds_state.toml文件（稍后处理）
             old_state_data = {}
@@ -250,6 +284,125 @@ class FileStorageBackend:
         except Exception as e:
             log.error(f"Error during JSON to TOML migration: {e}")
     
+    # ============ 队列写入优化方法 ============
+    
+    async def _start_write_queue_processor(self) -> None:
+        """启动写入队列处理任务"""
+        if self._write_task is not None:
+            return
+        
+        self._shutdown_event.clear()
+        self._write_task = asyncio.create_task(self._write_queue_processor())
+        log.debug("Write queue processor started")
+    
+    async def _stop_write_queue_processor(self) -> None:
+        """停止写入队列处理任务"""
+        if self._write_task is None:
+            return
+        
+        self._shutdown_event.set()
+        try:
+            await asyncio.wait_for(self._write_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            self._write_task.cancel()
+            try:
+                await self._write_task
+            except asyncio.CancelledError:
+                pass
+        
+        self._write_task = None
+        log.debug("Write queue processor stopped")
+    
+    async def _write_queue_processor(self) -> None:
+        """写入队列处理循环"""
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # 等待写入延迟或关闭事件
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(), 
+                        timeout=self._write_delay
+                    )
+                    break  # 收到关闭信号
+                except asyncio.TimeoutError:
+                    pass  # 超时，继续处理队列
+                
+                # 处理写入队列
+                await self._process_write_queue()
+                
+        except Exception as e:
+            log.error(f"Write queue processor error: {e}")
+    
+    async def _process_write_queue(self) -> None:
+        """处理写入队列中的操作"""
+        async with self._queue_lock:
+            if not self._dirty_files:
+                return
+            
+            # 复制脏文件集合并清空
+            files_to_write = self._dirty_files.copy()
+            self._dirty_files.clear()
+        
+        # 批量写入文件
+        for file_path in files_to_write:
+            try:
+                if file_path == self._state_file and file_path in self._write_cache:
+                    await self._save_toml_file(file_path, self._write_cache[file_path])
+                elif file_path == self._config_file and self._config_cache:
+                    await self._save_toml_file(file_path, self._config_cache)
+                    
+            except Exception as e:
+                log.error(f"Error writing file {file_path}: {e}")
+                # 重新标记为脏文件以便重试
+                async with self._queue_lock:
+                    self._dirty_files.add(file_path)
+    
+    async def _queue_write_operation(self, file_path: str, data: Dict[str, Any]) -> None:
+        """将写入操作加入队列"""
+        async with self._queue_lock:
+            # 更新缓存
+            if file_path == self._state_file:
+                self._write_cache[file_path] = data.copy()
+            elif file_path == self._config_file:
+                self._config_cache = data.copy()
+            
+            # 标记文件为脏文件
+            self._dirty_files.add(file_path)
+            
+            # 如果队列过大，立即处理
+            if len(self._dirty_files) >= self._max_queue_size:
+                asyncio.create_task(self._process_write_queue())
+    
+    async def _flush_all_caches(self) -> None:
+        """刷新所有缓存到磁盘"""
+        await self._process_write_queue()
+        
+        # 确保所有数据都已写入
+        async with self._queue_lock:
+            while self._dirty_files:
+                await self._process_write_queue()
+                if self._dirty_files:  # 如果仍有脏文件，稍等片刻
+                    await asyncio.sleep(0.1)
+    
+    async def _load_toml_file_with_cache(self, file_path: str) -> Dict[str, Any]:
+        """从缓存或文件加载TOML数据"""
+        # 优先从缓存读取
+        if file_path == self._state_file and file_path in self._write_cache:
+            return self._write_cache[file_path].copy()
+        elif file_path == self._config_file and self._config_cache:
+            return self._config_cache.copy()
+        
+        # 从文件读取并更新缓存
+        data = await self._load_toml_file(file_path)
+        
+        async with self._queue_lock:
+            if file_path == self._state_file:
+                self._write_cache[file_path] = data.copy()
+            elif file_path == self._config_file:
+                self._config_cache = data.copy()
+        
+        return data
+    
     
     async def export_credential_to_json(self, filename: str, output_path: str = None) -> bool:
         """将TOML中的凭证导出为JSON文件（用于兼容性和备份）"""
@@ -323,13 +476,13 @@ class FileStorageBackend:
     # ============ 凭证管理 ============
     
     async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
-        """存储凭证数据到TOML文件"""
+        """存储凭证数据到TOML文件（优化版：使用缓存和队列写入）"""
         self._ensure_initialized()
         
         async with self._lock:
             try:
                 filename = self._normalize_filename(filename)
-                toml_data = await self._load_toml_file(self._state_file)
+                toml_data = await self._load_toml_file_with_cache(self._state_file)
                 
                 
                 # 获取现有状态数据（如果存在）
@@ -358,10 +511,10 @@ class FileStorageBackend:
                 
                 toml_data[filename] = final_data
                 
-                success = await self._save_toml_file(self._state_file, toml_data)
-                if success:
-                    log.debug(f"Stored credential: {filename}")
-                return success
+                # 使用队列写入代替直接写入
+                await self._queue_write_operation(self._state_file, toml_data)
+                log.debug(f"Queued credential storage: {filename}")
+                return True
                 
             except Exception as e:
                 log.error(f"Error storing credential {filename}: {e}")
@@ -373,7 +526,7 @@ class FileStorageBackend:
         
         try:
             filename = self._normalize_filename(filename)
-            toml_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             if filename not in toml_data:
                 return None
@@ -399,7 +552,7 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            toml_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             # 返回所有section名称
             credentials = list(toml_data.keys())
@@ -416,15 +569,15 @@ class FileStorageBackend:
         async with self._lock:
             try:
                 filename = self._normalize_filename(filename)
-                toml_data = await self._load_toml_file(self._state_file)
+                toml_data = await self._load_toml_file_with_cache(self._state_file)
                 
                 if filename in toml_data:
                     del toml_data[filename]
                     
-                    success = await self._save_toml_file(self._state_file, toml_data)
-                    if success:
-                        log.debug(f"Deleted credential: {filename}")
-                    return success
+                    # 使用队列写入代替直接写入
+                    await self._queue_write_operation(self._state_file, toml_data)
+                    log.debug(f"Queued credential deletion: {filename}")
+                    return True
                 else:
                     log.warning(f"Credential not found: {filename}")
                     return False
@@ -442,7 +595,7 @@ class FileStorageBackend:
         async with self._lock:
             try:
                 filename = self._normalize_filename(filename)
-                toml_data = await self._load_toml_file(self._state_file)
+                toml_data = await self._load_toml_file_with_cache(self._state_file)
                 
                 if filename not in toml_data:
                     # 如果凭证不存在，创建一个空的section（包含基本状态数据）
@@ -461,7 +614,9 @@ class FileStorageBackend:
                 # 更新状态数据
                 toml_data[filename].update(state_updates)
                 
-                return await self._save_toml_file(self._state_file, toml_data)
+                # 使用队列写入代替直接写入
+                await self._queue_write_operation(self._state_file, toml_data)
+                return True
                 
             except Exception as e:
                 log.error(f"Error updating credential state {filename}: {e}")
@@ -473,7 +628,7 @@ class FileStorageBackend:
         
         try:
             filename = self._normalize_filename(filename)
-            toml_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             if filename not in toml_data:
                 return {
@@ -522,7 +677,7 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            toml_data = await self._load_toml_file(self._state_file)
+            toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             # 提取状态字段
             state_fields = {
@@ -550,9 +705,11 @@ class FileStorageBackend:
         
         async with self._lock:
             try:
-                config_data = await self._load_toml_file(self._config_file)
+                config_data = await self._load_toml_file_with_cache(self._config_file)
                 config_data[key] = value
-                return await self._save_toml_file(self._config_file, config_data)
+                # 使用队列写入代替直接写入
+                await self._queue_write_operation(self._config_file, config_data)
+                return True
                 
             except Exception as e:
                 log.error(f"Error setting config {key}: {e}")
@@ -563,7 +720,7 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            config_data = await self._load_toml_file(self._config_file)
+            config_data = await self._load_toml_file_with_cache(self._config_file)
             return config_data.get(key, default)
         except Exception as e:
             log.error(f"Error getting config {key}: {e}")
@@ -574,7 +731,7 @@ class FileStorageBackend:
         self._ensure_initialized()
         
         try:
-            return await self._load_toml_file(self._config_file)
+            return await self._load_toml_file_with_cache(self._config_file)
         except Exception as e:
             log.error(f"Error getting all config: {e}")
             return {}
@@ -585,11 +742,13 @@ class FileStorageBackend:
         
         async with self._lock:
             try:
-                config_data = await self._load_toml_file(self._config_file)
+                config_data = await self._load_toml_file_with_cache(self._config_file)
                 
                 if key in config_data:
                     del config_data[key]
-                    return await self._save_toml_file(self._config_file, config_data)
+                    # 使用队列写入代替直接写入
+                    await self._queue_write_operation(self._config_file, config_data)
+                    return True
                 
                 return True  # 键不存在视为成功
                 
@@ -636,6 +795,35 @@ class FileStorageBackend:
         """确保文件存储已初始化"""
         if not self._initialized:
             raise RuntimeError("File storage backend not initialized")
+    
+    # ============ 队列管理接口 ============
+    
+    async def flush_writes(self) -> None:
+        """立即刷新所有待写入数据到磁盘"""
+        await self._flush_all_caches()
+        log.debug("All cached writes flushed to disk")
+    
+    async def get_queue_status(self) -> Dict[str, Any]:
+        """获取写入队列状态"""
+        async with self._queue_lock:
+            return {
+                "dirty_files_count": len(self._dirty_files),
+                "cached_files": list(self._write_cache.keys()) + (["config"] if self._config_cache else []),
+                "write_delay": self._write_delay,
+                "max_queue_size": self._max_queue_size,
+                "batch_size": self._batch_size,
+                "queue_processor_running": self._write_task is not None and not self._write_task.done()
+            }
+    
+    def set_write_config(self, write_delay: float = None, max_queue_size: int = None, batch_size: int = None) -> None:
+        """配置写入队列参数"""
+        if write_delay is not None:
+            self._write_delay = max(0.1, write_delay)
+        if max_queue_size is not None:
+            self._max_queue_size = max(1, max_queue_size)
+        if batch_size is not None:
+            self._batch_size = max(1, batch_size)
+        log.debug(f"Write config updated: delay={self._write_delay}, max_queue={self._max_queue_size}, batch={self._batch_size}")
 
 
 class StorageAdapter:
