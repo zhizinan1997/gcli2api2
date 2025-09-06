@@ -427,43 +427,6 @@ async def _handle_non_streaming_response(resp, credential_manager: CredentialMan
         
         return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
 
-def build_gemini_payload_from_openai(openai_payload: dict) -> dict:
-    """
-    Build a Gemini API payload from an OpenAI-transformed request.
-    """
-    model = openai_payload.get("model")
-    safety_settings = openai_payload.get("safetySettings", DEFAULT_SAFETY_SETTINGS)
-    
-    # 构建请求数据，直接使用扁平化结构
-    request_data = {
-        "contents": openai_payload.get("contents"),
-        "safetySettings": safety_settings,
-        "generationConfig": openai_payload.get("generationConfig", {}),
-    }
-    
-    # 添加系统指令（如果存在）
-    system_instruction = openai_payload.get("system_instruction")
-    if system_instruction:
-        if isinstance(system_instruction, str):
-            request_data["systemInstruction"] = {"parts": [{"text": system_instruction}]}
-        else:
-            request_data["systemInstruction"] = system_instruction
-    
-    # 添加其他可选字段
-    optional_fields = ["cachedContent", "tools", "toolConfig"]
-    for field in optional_fields:
-        value = openai_payload.get(field)
-        if value is not None:
-            request_data[field] = value
-    
-    # 移除None值
-    request_data = {k: v for k, v in request_data.items() if v is not None}
-    
-    return {
-        "model": model,
-        "request": request_data
-    }
-
 
 def build_gemini_payload_from_native(native_request: dict, model_from_path: str) -> dict:
     """
