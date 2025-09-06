@@ -112,45 +112,50 @@ class UsageStats:
     async def _load_stats(self):
         """Load statistics from unified storage"""
         try:
-            # 从统一存储获取所有使用统计
-            all_usage_stats = await self._storage_adapter.get_all_usage_stats()
-            
-            # 并发处理统计数据（如果数据量大的话）
+            # 从统一存储获取所有使用统计，添加超时机制防止卡死
             import asyncio
             
-            async def process_stats_item(filename, stats_data):
-                """并发处理单个统计项"""
-                if isinstance(stats_data, dict):
-                    normalized_filename = self._normalize_filename(filename)
-                    # 提取使用统计字段
-                    usage_data = {
-                        "gemini_2_5_pro_calls": stats_data.get("gemini_2_5_pro_calls", 0),
-                        "total_calls": stats_data.get("total_calls", 0),
-                        "next_reset_time": stats_data.get("next_reset_time"),
-                        "daily_limit_gemini_2_5_pro": stats_data.get("daily_limit_gemini_2_5_pro", 100),
-                        "daily_limit_total": stats_data.get("daily_limit_total", 1000)
-                    }
-                    # 只返回有实际数据的统计
-                    if any(usage_data[k] for k in ["gemini_2_5_pro_calls", "total_calls", "next_reset_time"]):
-                        return normalized_filename, usage_data
-                return None, None
+            async def load_stats_with_timeout():
+                all_usage_stats = await self._storage_adapter.get_all_usage_stats()
+                
+                log.debug(f"Processing {len(all_usage_stats)} usage statistics items...")
+                
+                # 直接处理统计数据
+                stats_cache = {}
+                processed_count = 0
+                
+                for filename, stats_data in all_usage_stats.items():
+                    if isinstance(stats_data, dict):
+                        normalized_filename = self._normalize_filename(filename)
+                        
+                        # 提取使用统计字段
+                        usage_data = {
+                            "gemini_2_5_pro_calls": stats_data.get("gemini_2_5_pro_calls", 0),
+                            "total_calls": stats_data.get("total_calls", 0),
+                            "next_reset_time": stats_data.get("next_reset_time"),
+                            "daily_limit_gemini_2_5_pro": stats_data.get("daily_limit_gemini_2_5_pro", 100),
+                            "daily_limit_total": stats_data.get("daily_limit_total", 1000)
+                        }
+                        
+                        # 只加载有实际使用数据的统计，或者有reset时间的
+                        if (usage_data.get("gemini_2_5_pro_calls", 0) > 0 or 
+                            usage_data.get("total_calls", 0) > 0 or 
+                            usage_data.get("next_reset_time")):
+                            stats_cache[normalized_filename] = usage_data
+                            processed_count += 1
+                
+                return stats_cache, processed_count
             
-            # 始终使用并发处理所有统计项
-            log.debug(f"并发处理 {len(all_usage_stats)} 个使用统计项...")
-            tasks = [process_stats_item(filename, stats_data) 
-                    for filename, stats_data in all_usage_stats.items()]
-            results = await asyncio.gather(*tasks)
-            
-            # 组装结果
-            self._stats_cache = {}
-            for normalized_filename, usage_data in results:
-                if normalized_filename and usage_data:
-                    self._stats_cache[normalized_filename] = usage_data
-            
-            log.debug(f"Loaded usage statistics for {len(self._stats_cache)} credential files")
-            
-            # Clean statistics for deleted credential files after loading
-            await self._clean_deleted_credentials_internal()
+            # 设置15秒超时防止卡死
+            try:
+                self._stats_cache, processed_count = await asyncio.wait_for(
+                    load_stats_with_timeout(), timeout=15.0
+                )
+                log.debug(f"Loaded usage statistics for {processed_count} credential files")
+            except asyncio.TimeoutError:
+                log.error("Loading usage statistics timed out after 30 seconds, using empty cache")
+                self._stats_cache = {}
+                return
             
         except Exception as e:
             log.error(f"Failed to load usage statistics: {e}")
@@ -165,29 +170,30 @@ class UsageStats:
             return
             
         try:
-            # 并发批量更新使用统计到存储适配器
-            import asyncio
+            # 批量更新使用统计到存储适配器
+            log.debug(f"Saving {len(self._stats_cache)} usage statistics items...")
             
-            async def update_single_stats(filename, stats):
-                """并发更新单个统计项"""
-                stats_data = {
-                    "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
-                    "total_calls": stats.get("total_calls", 0),
-                    "next_reset_time": stats.get("next_reset_time"),
-                    "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
-                    "daily_limit_total": stats.get("daily_limit_total", 1000)
-                }
-                return await self._storage_adapter.update_usage_stats(filename, stats_data)
-            
-            # 始终使用并发更新所有统计项
-            log.debug(f"并发保存 {len(self._stats_cache)} 个使用统计项...")
-            tasks = [update_single_stats(filename, stats) 
-                    for filename, stats in self._stats_cache.items()]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            saved_count = 0
+            for filename, stats in self._stats_cache.items():
+                try:
+                    stats_data = {
+                        "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
+                        "total_calls": stats.get("total_calls", 0),
+                        "next_reset_time": stats.get("next_reset_time"),
+                        "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
+                        "daily_limit_total": stats.get("daily_limit_total", 1000)
+                    }
+                    
+                    success = await self._storage_adapter.update_usage_stats(filename, stats_data)
+                    if success:
+                        saved_count += 1
+                except Exception as e:
+                    log.error(f"Failed to save stats for {filename}: {e}")
+                    continue
                 
             self._cache_dirty = False  # 清除脏标记
             self._last_save_time = current_time
-            log.debug("Usage statistics saved successfully to unified storage")
+            log.debug(f"Successfully saved {saved_count}/{len(self._stats_cache)} usage statistics to unified storage")
         except Exception as e:
             log.error(f"Failed to save usage statistics: {e}")
     
@@ -378,37 +384,6 @@ class UsageStats:
         
         await self._save_stats()
     
-    async def _clean_deleted_credentials_internal(self):
-        """Internal method to clean deleted credentials without initialization check."""
-        with self._lock:
-            try:
-                # Get list of existing credential files from storage adapter
-                existing_files = set(await self._storage_adapter.list_credentials())
-                
-                # Find statistics for deleted files
-                deleted_files = []
-                for filename in list(self._stats_cache.keys()):
-                    if filename not in existing_files:
-                        deleted_files.append(filename)
-                
-                # Remove statistics for deleted files (only log if files were actually deleted)
-                if deleted_files:
-                    for filename in deleted_files:
-                        del self._stats_cache[filename]
-                        self._cache_dirty = True
-                        log.debug(f"Removed statistics for deleted credential file: {filename}")
-                    
-                    log.info(f"Cleaned statistics for {len(deleted_files)} deleted credential files")
-            except Exception as e:
-                log.error(f"Error cleaning deleted credentials: {e}")
-    
-    async def clean_deleted_credentials(self):
-        """Clean statistics for deleted credential files."""
-        if not self._initialized:
-            await self.initialize()
-        
-        await self._clean_deleted_credentials_internal()
-    
     async def reset_stats(self, filename: str = None):
         """Reset usage statistics."""
         if not self._initialized:
@@ -467,9 +442,3 @@ async def get_aggregated_stats() -> Dict[str, Any]:
     """Convenience function to get aggregated statistics."""
     stats = await get_usage_stats_instance()
     return await stats.get_aggregated_stats()
-
-
-async def clean_deleted_credentials():
-    """Convenience function to clean statistics for deleted credential files."""
-    stats = await get_usage_stats_instance()
-    await stats.clean_deleted_credentials()
