@@ -10,6 +10,7 @@ from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
     get_thinking_budget,
+    is_search_model,
     should_include_thoughts,
     get_compatibility_mode_enabled
 )
@@ -148,7 +149,11 @@ async def openai_request_to_gemini(openai_request: ChatCompletionRequest) -> Dic
             "thinkingBudget": thinking_budget,
             "includeThoughts": should_include_thoughts(openai_request.model)
         }
-    
+
+    # 为搜索模型添加Google Search工具
+    if is_search_model(openai_request.model):
+        request_payload["tools"] = [{"googleSearch": {}}]
+
     return request_payload
 
 def _extract_content_and_reasoning(parts: list) -> tuple:
