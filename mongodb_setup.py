@@ -7,9 +7,9 @@ import sys
 
 from config import is_mongodb_mode, get_mongodb_uri, get_mongodb_database
 from log import log
-from mongodb.migration_tool import MigrationTool
+from tools.migration_tool import MigrationTool
 from src.storage_adapter import get_storage_adapter
-from mongodb.mongodb_manager import get_mongodb_manager
+from mongodb_manager import get_mongodb_manager
 
 async def check_mongodb_connection():
     """检查MongoDB连接"""

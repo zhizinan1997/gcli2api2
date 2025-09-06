@@ -393,7 +393,7 @@ class StorageAdapter:
             if mongodb_uri:
                 # 使用MongoDB存储
                 try:
-                    from .mongodb.mongodb_manager import MongoDBManager
+                    from .mongodb_manager import MongoDBManager
                     self._backend = MongoDBManager()
                     await self._backend.initialize()
                     log.info("Using MongoDB storage backend")

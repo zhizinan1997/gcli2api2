@@ -10,8 +10,8 @@ import aiofiles
 import toml
 
 from log import log
-from .mongodb_manager import get_mongodb_manager
-from ..storage_adapter import FileStorageBackend
+from ..src.mongodb_manager import get_mongodb_manager
+from ..src.storage_adapter import FileStorageBackend
 
 
 class MigrationTool:
