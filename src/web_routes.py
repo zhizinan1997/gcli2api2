@@ -563,9 +563,9 @@ async def get_creds_status(token: str = Depends(verify_token)):
         backend_info = await storage_adapter.get_backend_info()
         backend_type = backend_info.get("backend_type", "unknown")
         
-        # 并发处理所有凭证的状态和数据获取
-        async def process_credential_status(filename):
-            """并发处理单个凭证的状态获取"""
+        # 并发处理所有凭证的数据获取（状态已获取，无需重复处理）
+        async def process_credential_data(filename):
+            """并发处理单个凭证的数据获取"""
             file_status = all_states.get(filename)
             
             # 如果没有状态记录，创建默认状态
@@ -638,9 +638,9 @@ async def get_creds_status(token: str = Depends(verify_token)):
                     "error": str(e)
                 }
         
-        # 并发处理所有凭证
-        log.info(f"开始并发处理 {len(all_credentials)} 个凭证状态...")
-        concurrent_tasks = [process_credential_status(filename) for filename in all_credentials]
+        # 并发处理所有凭证数据获取
+        log.info(f"开始并发获取 {len(all_credentials)} 个凭证数据...")
+        concurrent_tasks = [process_credential_data(filename) for filename in all_credentials]
         results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
         
         # 组装结果
