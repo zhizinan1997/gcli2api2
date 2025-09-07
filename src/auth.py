@@ -11,7 +11,7 @@ import uuid
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs
 
 from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, select_default_project
 from .storage_adapter import get_storage_adapter
