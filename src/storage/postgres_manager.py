@@ -34,7 +34,15 @@ class PostgresCacheBackend(CacheBackend):
                     self._row_key
                 )
                 if row and row.get('data') is not None:
-                    return dict(row['data'])
+                    data = row['data']
+                    # JSONB字段返回JSON字符串，需要解析为字典
+                    if isinstance(data, str):
+                        return json.loads(data)
+                    elif isinstance(data, dict):
+                        return data
+                    else:
+                        log.warning(f"Unexpected data type from JSONB field: {type(data)}")
+                        return {}
                 return {}
         except Exception as e:
             log.error(f"Error loading data from Postgres row {self._row_key}: {e}")
