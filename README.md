@@ -30,7 +30,7 @@
 
 ---
 
-## 控制面板演示网址：https://gcli2api-9xbf.onrender.com
+## 控制面板演示网址：https://gcli2api-9xbf.onrender.com 密码：pwd
 
 ## 核心功能
 
