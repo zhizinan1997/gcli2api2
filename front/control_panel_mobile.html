@@ -1781,18 +1781,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     document.getElementById('credentialsContent').innerHTML = JSON.stringify(result.credentials, null, 2);
                     document.getElementById('credentialsSection').classList.remove('hidden');
                     
-                }
-                
-                // 清空输入框
-                callbackUrlInput.value = '';
-                
-                // 刷新凭证列表（如果有）
-                setTimeout(() => {
-                    if (typeof loadCredentialsStatus === 'function') {
-                        loadCredentialsStatus();
-                    }
-                }, 1000);
-                    
                 } else if (result.requires_manual_project_id) {
                     showStatus('需要手动指定项目ID，请在高级选项中填入Google Cloud项目ID后重试', 'error');
                 } else if (result.requires_project_selection) {
@@ -1804,10 +1792,20 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 } else {
                     showStatus(result.error || '从回调URL获取凭证失败', 'error');
                 }
-            } catch (error) {
-                console.error('从回调URL获取凭证时出错:', error);
-                showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
-            }
+                
+                // 清空输入框
+                callbackUrlInput.value = '';
+                
+                // 刷新凭证列表（如果有）
+                setTimeout(() => {
+                    if (typeof loadCredentialsStatus === 'function') {
+                        loadCredentialsStatus();
+                    }
+                }, 1000);
+        } catch (error) {
+            console.error('从回调URL获取凭证时出错:', error);
+            showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
+        }
         }
 
         // 文件上传相关函数
