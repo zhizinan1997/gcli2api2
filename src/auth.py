@@ -11,7 +11,7 @@ import uuid
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 
 from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, select_default_project
 from .storage_adapter import get_storage_adapter
@@ -716,6 +716,149 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             
     except Exception as e:
         log.error(f"异步完成认证流程失败: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+async def complete_auth_flow_from_callback_url(callback_url: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+    """从回调URL直接完成认证流程，无需启动本地服务器"""
+    try:
+        log.info(f"开始从回调URL完成认证: {callback_url}")
+        
+        # 解析回调URL
+        parsed_url = urlparse(callback_url)
+        query_params = parse_qs(parsed_url.query)
+        
+        # 验证必要参数
+        if 'state' not in query_params or 'code' not in query_params:
+            return {
+                'success': False,
+                'error': '回调URL缺少必要参数 (state 或 code)'
+            }
+        
+        state = query_params['state'][0]
+        code = query_params['code'][0]
+        
+        log.info(f"从URL解析到: state={state}, code=xxx...")
+        
+        # 检查是否有对应的认证流程
+        if state not in auth_flows:
+            return {
+                'success': False,
+                'error': f'未找到对应的认证流程，请先启动认证 (state: {state})'
+            }
+        
+        flow_data = auth_flows[state]
+        flow = flow_data['flow']
+        
+        # 构造回调URL（使用flow中存储的redirect_uri）
+        redirect_uri = flow.redirect_uri
+        log.info(f"使用redirect_uri: {redirect_uri}")
+        
+        try:
+            # 使用authorization code获取token
+            credentials = await flow.exchange_code(code)
+            log.info("成功获取访问令牌")
+            
+            # 项目ID处理逻辑
+            detected_project_id = None
+            auto_detected = False
+            
+            if not project_id:
+                # 尝试自动检测项目ID
+                try:
+                    projects = await get_user_projects(credentials)
+                    if projects:
+                        if len(projects) == 1:
+                            # 只有一个项目，自动使用
+                            detected_project_id = projects[0]['projectId']
+                            auto_detected = True
+                            log.info(f"自动检测到唯一项目ID: {detected_project_id}")
+                        else:
+                            # 多个项目，自动选择第一个
+                            detected_project_id = projects[0]['projectId']
+                            auto_detected = True
+                            log.info(f"检测到{len(projects)}个项目，自动选择第一个: {detected_project_id}")
+                            log.debug(f"其他可用项目: {[p['projectId'] for p in projects[1:]]}")
+                    else:
+                        # 没有项目访问权限
+                        return {
+                            'success': False,
+                            'error': '未检测到可访问的项目，请检查权限或手动指定项目ID',
+                            'requires_manual_project_id': True
+                        }
+                except Exception as e:
+                    log.warning(f"自动检测项目ID失败: {e}")
+                    return {
+                        'success': False,
+                        'error': f'自动检测项目ID失败: {str(e)}，请手动指定项目ID',
+                        'requires_manual_project_id': True
+                    }
+            else:
+                detected_project_id = project_id
+            
+            # 启用必需的API服务
+            if detected_project_id:
+                try:
+                    log.info(f"正在为项目 {detected_project_id} 启用必需的API服务...")
+                    await enable_required_apis(credentials, detected_project_id)
+                except Exception as e:
+                    log.warning(f"启用API服务失败: {e}")
+            
+            # 保存凭证
+            saved_filename = await save_credentials(credentials, detected_project_id)
+            
+            # 准备返回的凭证数据
+            creds_data = {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "token": credentials.access_token,
+                "refresh_token": credentials.refresh_token,
+                "scopes": SCOPES,
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "project_id": detected_project_id
+            }
+            
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
+                else:
+                    expiry_utc = credentials.expires_at
+                creds_data["expiry"] = expiry_utc.isoformat()
+            
+            # 清理使用过的流程
+            if state in auth_flows:
+                flow_data_to_clean = auth_flows[state]
+                # 快速关闭服务器（如果有）
+                try:
+                    if flow_data_to_clean.get('server'):
+                        server = flow_data_to_clean['server']
+                        port = flow_data_to_clean.get('callback_port')
+                        async_shutdown_server(server, port)
+                except Exception as e:
+                    log.debug(f"关闭服务器时出错: {e}")
+                
+                del auth_flows[state]
+            
+            log.info("从回调URL完成OAuth认证成功，凭证已保存")
+            return {
+                'success': True,
+                'credentials': creds_data,
+                'file_path': saved_filename,
+                'auto_detected_project': auto_detected
+            }
+            
+        except Exception as e:
+            log.error(f"从回调URL获取凭证失败: {e}")
+            return {
+                'success': False,
+                'error': f'获取凭证失败: {str(e)}'
+            }
+        
+    except Exception as e:
+        log.error(f"从回调URL完成认证流程失败: {e}")
         return {
             'success': False,
             'error': str(e)

@@ -10,7 +10,8 @@ import os
 import time
 import zipfile
 from collections import deque
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
@@ -19,13 +20,14 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 import toml
 import zipfile
+import httpx
 
 import config
 from log import log
 from .auth import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
-    asyncio_complete_auth_flow, 
+    asyncio_complete_auth_flow, complete_auth_flow_from_callback_url,
     load_credentials_from_env, clear_env_credentials
 )
 from .credential_manager import CredentialManager
@@ -144,6 +146,10 @@ class AuthStartRequest(BaseModel):
 
 class AuthCallbackRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
+
+class AuthCallbackUrlRequest(BaseModel):
+    callback_url: str  # OAuth回调完整URL
+    project_id: Optional[str] = None  # 可选的项目ID
 
 class CredFileActionRequest(BaseModel):
     filename: str
@@ -311,6 +317,53 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
         raise
     except Exception as e:
         log.error(f"处理认证回调失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/auth/callback-url")
+async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
+    """从回调URL直接完成认证，无需启动本地服务器"""
+    try:
+        # 验证URL格式
+        if not request.callback_url or not request.callback_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail="请提供有效的回调URL")
+        
+        # 从回调URL完成认证
+        result = await complete_auth_flow_from_callback_url(request.callback_url, request.project_id)
+        
+        if result['success']:
+            return JSONResponse(content={
+                "credentials": result['credentials'],
+                "file_path": result['file_path'],
+                "message": "从回调URL认证成功，凭证已保存",
+                "auto_detected_project": result.get('auto_detected_project', False)
+            })
+        else:
+            # 处理各种错误情况
+            if result.get('requires_manual_project_id'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_manual_project_id": True
+                    }
+                )
+            elif result.get('requires_project_selection'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_project_selection": True,
+                        "available_projects": result['available_projects']
+                    }
+                )
+            else:
+                raise HTTPException(status_code=400, detail=result['error'])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"从回调URL处理认证失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
