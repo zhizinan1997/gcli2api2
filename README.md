@@ -290,11 +290,45 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
      - `x-goog-api-key: your_api_password` 
      - URL 参数：`?key=your_api_password`
 
-## 🍃 MongoDB 分布式存储模式
+## 💾 分布式存储模式
 
-### 🌟 新增功能
+### 🌟 存储后端优先级
 
-gcli2api 现已支持 **MongoDB 存储模式**，
+gcli2api 支持多种存储后端，按优先级自动选择：**Redis > MongoDB > 本地文件**
+
+### ⚡ Redis 分布式存储模式
+
+### ⚙️ 启用 Redis 模式
+
+**步骤 1: 配置 Redis 连接**
+```bash
+# 本地 Redis
+export REDIS_URI="redis://localhost:6379"
+
+# 带密码的 Redis
+export REDIS_URI="redis://:password@localhost:6379"
+
+# SSL 连接（推荐生产环境）
+export REDIS_URI="rediss://default:password@host:6380"
+
+# Upstash Redis（免费云服务）
+export REDIS_URI="rediss://default:token@your-host.upstash.io:6379"
+
+# 可选：自定义数据库索引（默认: 0）
+export REDIS_DATABASE="1"
+```
+
+**步骤 2: 启动应用**
+```bash
+# 应用会自动检测 Redis 配置并优先使用 Redis 存储
+python web.py
+```
+
+### 🍃 MongoDB 分布式存储模式
+
+### 🌟 备选存储方案
+
+如果未配置 Redis，gcli2api 将尝试使用 **MongoDB 存储模式**，
 
 ### ⚙️ 启用 MongoDB 模式
 
@@ -317,22 +351,6 @@ export MONGODB_DATABASE="my_gcli_db"
 ```bash
 # 应用会自动检测 MongoDB 配置并使用 MongoDB 存储
 python web.py
-```
-
-### 🔄 数据迁移
-
-提供完整的数据迁移工具，支持本地文件与 MongoDB 之间的双向迁移：
-
-**使用管理脚本（推荐）**
-```bash
-# 启动交互式管理界面
-python mongodb_setup.py
-
-# 直接命令行操作
-python mongodb_setup.py status    # 查看当前存储状态
-python mongodb_setup.py check     # 检查 MongoDB 连接
-python mongodb_setup.py migrate   # 迁移数据到 MongoDB
-python mongodb_setup.py export    # 从 MongoDB 导出数据
 ```
 
 **Docker 环境使用 MongoDB**
@@ -562,7 +580,16 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
 - `LOG_FILE`: 日志文件路径（默认：gcli2api.log）
 
-**MongoDB 配置**
+**存储配置（按优先级）**
+
+**Redis 配置（最高优先级）**
+- `REDIS_URI`: Redis 连接字符串（设置后启用 Redis 模式）
+  - 本地：`redis://localhost:6379`
+  - 带密码：`redis://:password@host:6379`
+  - SSL：`rediss://default:password@host:6380`
+- `REDIS_DATABASE`: Redis 数据库索引（0-15，默认：0）
+
+**MongoDB 配置（第二优先级）**
 - `MONGODB_URI`: MongoDB 连接字符串（设置后启用 MongoDB 模式）
 - `MONGODB_DATABASE`: MongoDB 数据库名称（默认：gcli2api）
 
