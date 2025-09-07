@@ -294,7 +294,7 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 ### 🌟 Storage Backend Priority
 
-gcli2api supports multiple storage backends, automatically selecting by priority: **Redis > MongoDB > Local Files**
+gcli2api supports multiple storage backends, automatically selecting by priority: **Redis > Postgres > MongoDB > Local Files**
 
 ### ⚡ Redis Distributed Storage Mode
 
@@ -321,6 +321,24 @@ export REDIS_DATABASE="1"
 **Step 2: Start Application**
 ```bash
 # Application will automatically detect Redis configuration and prioritize Redis storage
+python web.py
+```
+
+### 🐘 Postgres Distributed Storage Mode
+
+If Redis is not configured, or you prefer a relational database, gcli2api also supports Postgres (it is checked after Redis and before MongoDB).
+
+⚙️ Enable Postgres Mode
+
+Step 1: Configure Postgres DSN
+```bash
+# Example DSN:
+export POSTGRES_DSN="postgresql://user:password@localhost:5432/gcli2api"
+```
+
+Step 2: Start Application
+```bash
+# Application will detect POSTGRES_DSN and use Postgres when Redis is not available
 python web.py
 ```
 

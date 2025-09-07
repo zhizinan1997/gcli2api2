@@ -296,7 +296,7 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 ### 🌟 存储后端优先级
 
-gcli2api 支持多种存储后端，按优先级自动选择：**Redis > MongoDB > 本地文件**
+gcli2api 支持多种存储后端，按优先级自动选择：**Redis > Postgres > MongoDB > 本地文件**
 
 ### ⚡ Redis 分布式存储模式
 
@@ -323,6 +323,26 @@ export REDIS_DATABASE="1"
 **步骤 2: 启动应用**
 ```bash
 # 应用会自动检测 Redis 配置并优先使用 Redis 存储
+python web.py
+```
+
+### 🐘 Postgres 分布式存储模式
+
+如果未配置 Redis，或者你希望使用关系型数据库作为主要存储方案，gcli2api 也支持 Postgres（位于 Redis 之后，优先于 MongoDB）。
+
+⚙️ 启用 Postgres 模式
+
+步骤 1: 配置 Postgres 连接
+```bash
+# 使用标准 DSN（示例）
+export POSTGRES_DSN="postgresql://user:password@localhost:5432/gcli2api"
+
+# 也可以使用 socket 或其他 DSN 格式，取决于你的部署方式
+```
+
+步骤 2: 启动应用
+```bash
+# 应用会自动检测 POSTGRES_DSN 并在 Redis 未启用时优先使用 Postgres 存储
 python web.py
 ```
 
