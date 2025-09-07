@@ -638,7 +638,7 @@ async def get_creds_status(token: str = Depends(verify_token)):
                 }
         
         # 并发处理所有凭证数据获取
-        log.info(f"开始并发获取 {len(all_credentials)} 个凭证数据...")
+        log.debug(f"开始并发获取 {len(all_credentials)} 个凭证数据...")
         concurrent_tasks = [process_credential_data(filename) for filename in all_credentials]
         results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
         
