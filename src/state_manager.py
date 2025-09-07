@@ -4,8 +4,7 @@
 """
 import asyncio
 import os
-import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from contextlib import asynccontextmanager
 
 from config import is_mongodb_mode
@@ -15,8 +14,7 @@ from .storage_adapter import get_storage_adapter
 
 class StateManager:
     """
-    统一状态管理器，兼容原有的StateManager接口。
-    根据配置自动选择存储后端。
+    统一状态管理器
     """
     
     def __init__(self, state_file_path: str):
