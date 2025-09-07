@@ -8,9 +8,19 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from collections import deque
+from dataclasses import dataclass, field
 
 import motor.motor_asyncio
 from log import log
+
+
+@dataclass
+class WriteOperation:
+    """写入操作数据结构"""
+    key: str
+    data: Dict[str, Any]
+    timestamp: float = field(default_factory=time.time)
+    operation_type: str = "update"  # update, delete
 
 class MongoDBManager:
     """MongoDB数据库管理器"""
@@ -25,8 +35,8 @@ class MongoDBManager:
         self._connection_uri = None
         self._database_name = None
         
-        # 单一集合设计 - 性能优化的核心
-        self._unified_collection = "unified_storage"
+        # 单文档设计 - 所有凭证存在一个文档中（类似TOML文件）
+        self._collection_name = "credentials_data"
         
         # 并发控制
         self._semaphore = asyncio.Semaphore(100)
@@ -34,6 +44,22 @@ class MongoDBManager:
         # 性能监控
         self._operation_count = 0
         self._operation_times = deque(maxlen=5000)
+        
+        # 单文档读写缓存（类似文件模式但更简单）
+        self._credentials_cache: Dict[str, Any] = {}  # 完整的凭证数据缓存
+        self._cache_dirty = False  # 标记缓存是否需要写回
+        self._cache_lock = asyncio.Lock()
+        self._write_task: Optional[asyncio.Task] = None
+        self._shutdown_event = asyncio.Event()
+        self._last_cache_time = 0  # 上次缓存更新时间
+        
+        # 文档key定义
+        self._credentials_doc_key = "all_credentials"
+        self._config_doc_key = "config_data"
+        
+        # 写入配置参数
+        self._write_delay = 1.0  # 写入延迟（秒）
+        self._cache_ttl = 300  # 缓存TTL（秒）
     
     async def initialize(self):
         """初始化MongoDB连接"""
@@ -68,40 +94,40 @@ class MongoDBManager:
                 # 创建索引
                 await self._create_indexes()
                 
+                # 启动缓存写回任务
+                await self._start_cache_writer()
+                
                 self._initialized = True
-                log.info(f"MongoDB connection established to {self._database_name}")
+                log.info(f"MongoDB connection established to {self._database_name} with batch mode")
                 
             except Exception as e:
                 log.error(f"Error initializing MongoDB: {e}")
                 raise
     
     async def _create_indexes(self):
-        """创建优化的索引"""
+        """创建简单索引（单文档设计）"""
         try:
-            # 主复合索引 - 查询性能的关键
-            await self._db[self._unified_collection].create_index([
-                ("type", 1),  # 文档类型：credential 或 config
-                ("key", 1)    # 凭证文件名或配置键名
-            ], unique=True)
+            # 单文档设计只需要主键索引
+            await self._db[self._collection_name].create_index("key", unique=True)
+            await self._db[self._collection_name].create_index("updated_at")
             
-            # 辅助索引
-            await self._db[self._unified_collection].create_index("created_at")
-            await self._db[self._unified_collection].create_index("updated_at")
-            await self._db[self._unified_collection].create_index("state.disabled")
-            await self._db[self._unified_collection].create_index("state.last_success")
-            await self._db[self._unified_collection].create_index("stats.next_reset_time")
-            
-            log.info("MongoDB indexes created successfully")
+            log.info("MongoDB indexes created for single-document design")
             
         except Exception as e:
             log.error(f"Error creating MongoDB indexes: {e}")
     
     async def close(self):
         """关闭MongoDB连接"""
+        # 停止缓存写回任务
+        await self._stop_cache_writer()
+        
+        # 刷新缓存到数据库
+        await self._flush_cache()
+        
         if self._client:
             self._client.close()
             self._initialized = False
-            log.info("MongoDB connection closed")
+            log.info("MongoDB connection closed with cache flushed")
     
     def _ensure_initialized(self):
         """确保已初始化"""
@@ -130,56 +156,34 @@ class MongoDBManager:
     # ============ 凭证管理 ============
     
     async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
-        """存储凭证数据到统一集合"""
-        async with self._semaphore:
+        """存储凭证数据到缓存（延迟写回MongoDB）"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                now = datetime.now(timezone.utc)
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                # 获取现有文档（如果存在）保留状态和统计数据
-                existing_doc = await self._db[self._unified_collection].find_one(
-                    {"type": "credential", "key": filename}
-                )
-                
-                # 准备统一文档
-                doc = {
-                    "type": "credential",
-                    "key": filename,
-                    "credential": credential_data,
-                    "updated_at": now,
-                }
-                
-                if existing_doc:
-                    # 保留现有的状态和统计数据
-                    doc["state"] = existing_doc.get("state", self._get_default_state())
-                    doc["stats"] = existing_doc.get("stats", self._get_default_stats())
-                    doc["created_at"] = existing_doc.get("created_at", now)
+                # 更新缓存中的凭证数据
+                if filename not in self._credentials_cache:
+                    self._credentials_cache[filename] = {
+                        "credential": credential_data,
+                        "state": self._get_default_state(),
+                        "stats": self._get_default_stats()
+                    }
                 else:
-                    # 新凭证，使用默认状态和统计
-                    doc["state"] = self._get_default_state()
-                    doc["stats"] = self._get_default_stats()
-                    doc["created_at"] = now
+                    self._credentials_cache[filename]["credential"] = credential_data
                 
-                # 使用upsert操作
-                result = await self._db[self._unified_collection].replace_one(
-                    {"type": "credential", "key": filename},
-                    doc,
-                    upsert=True
-                )
+                self._cache_dirty = True
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if result.upserted_id or result.modified_count > 0:
-                    log.debug(f"Stored credential: {filename} in {operation_time:.3f}s")
-                    return True
-                else:
-                    log.warning(f"No changes made to credential: {filename}")
-                    return False
+                log.debug(f"Stored credential to cache: {filename} in {operation_time:.3f}s")
+                return True
                     
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -187,25 +191,22 @@ class MongoDBManager:
                 return False
     
     async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
-        """从统一集合获取凭证数据"""
-        async with self._semaphore:
+        """从缓存获取凭证数据"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                doc = await self._db[self._unified_collection].find_one(
-                    {"type": "credential", "key": filename},
-                    {"credential": 1, "_id": 0}
-                )
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc and "credential" in doc:
-                    log.debug(f"Retrieved credential: {filename} in {operation_time:.3f}s")
-                    return doc["credential"]
+                if filename in self._credentials_cache:
+                    return self._credentials_cache[filename]["credential"]
                 return None
                 
             except Exception as e:
@@ -214,27 +215,23 @@ class MongoDBManager:
                 return None
     
     async def list_credentials(self) -> List[str]:
-        """从统一集合列出所有凭证文件名"""
-        async with self._semaphore:
+        """从缓存列出所有凭证文件名"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                cursor = self._db[self._unified_collection].find(
-                    {"type": "credential"},
-                    {"key": 1, "_id": 0}
-                ).sort("created_at", 1)
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                filenames = []
-                async for doc in cursor:
-                    filenames.append(doc["key"])
+                filenames = list(self._credentials_cache.keys())
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                log.debug(f"Listed {len(filenames)} credentials in {operation_time:.3f}s")
+                log.debug(f"Listed {len(filenames)} credentials from cache in {operation_time:.3f}s")
                 return filenames
                 
             except Exception as e:
@@ -243,24 +240,26 @@ class MongoDBManager:
                 return []
     
     async def delete_credential(self, filename: str) -> bool:
-        """从统一集合删除凭证及所有相关数据"""
-        async with self._semaphore:
+        """从缓存删除凭证及所有相关数据"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                # 单次操作删除整个文档（包含凭证、状态、统计数据）
-                result = await self._db[self._unified_collection].delete_one(
-                    {"type": "credential", "key": filename}
-                )
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                # 性能监控
-                self._operation_count += 1
-                operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
-                
-                if result.deleted_count > 0:
-                    log.debug(f"Deleted credential and all related data: {filename} in {operation_time:.3f}s")
+                # 从缓存中删除凭证
+                if filename in self._credentials_cache:
+                    del self._credentials_cache[filename]
+                    self._cache_dirty = True
+                    
+                    # 性能监控
+                    self._operation_count += 1
+                    operation_time = time.time() - start_time
+                    self._operation_times.append(operation_time)
+                    
+                    log.debug(f"Deleted credential from cache: {filename} in {operation_time:.3f}s")
                     return True
                 else:
                     log.warning(f"Credential not found for deletion: {filename}")
@@ -274,52 +273,34 @@ class MongoDBManager:
     # ============ 状态管理 ============
     
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
-        """在统一集合中更新凭证状态"""
-        async with self._semaphore:
+        """更新凭证状态（使用缓存模式）"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                now = datetime.now(timezone.utc)
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                # 使用$set更新状态字段
-                update_operations = {}
-                for key, value in state_updates.items():
-                    update_operations[f"state.{key}"] = value
-                
-                update_operations["updated_at"] = now
-                
-                # 准备更新文档
-                update_doc = {
-                    "$set": update_operations,
-                    "$setOnInsert": {
-                        "type": "credential",
-                        "key": filename,
-                        "created_at": now,
+                # 确保凭证存在于缓存中
+                if filename not in self._credentials_cache:
+                    self._credentials_cache[filename] = {
                         "credential": {},
                         "state": self._get_default_state(),
                         "stats": self._get_default_stats()
                     }
-                }
                 
-                # 使用upsert操作
-                result = await self._db[self._unified_collection].update_one(
-                    {"type": "credential", "key": filename},
-                    update_doc,
-                    upsert=True
-                )
+                # 更新状态数据
+                self._credentials_cache[filename]["state"].update(state_updates)
+                self._cache_dirty = True
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if result.modified_count > 0 or result.upserted_id:
-                    log.debug(f"Updated credential state: {filename} in {operation_time:.3f}s")
-                    return True
-                else:
-                    log.warning(f"No changes made to credential state: {filename}")
-                    return False
+                log.debug(f"Updated credential state in cache: {filename} in {operation_time:.3f}s")
+                return True
                     
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -327,25 +308,23 @@ class MongoDBManager:
                 return False
     
     async def get_credential_state(self, filename: str) -> Dict[str, Any]:
-        """从统一集合获取凭证状态"""
-        async with self._semaphore:
+        """从缓存获取凭证状态"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                doc = await self._db[self._unified_collection].find_one(
-                    {"type": "credential", "key": filename},
-                    {"state": 1, "_id": 0}
-                )
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc and "state" in doc:
-                    log.debug(f"Retrieved credential state: {filename} in {operation_time:.3f}s")
-                    return doc["state"]
+                if filename in self._credentials_cache:
+                    log.debug(f"Retrieved credential state from cache: {filename} in {operation_time:.3f}s")
+                    return self._credentials_cache[filename]["state"]
                 else:
                     # 返回默认状态
                     return self._get_default_state()
@@ -356,30 +335,25 @@ class MongoDBManager:
                 return self._get_default_state()
     
     async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
-        """从统一集合获取所有凭证状态"""
-        async with self._semaphore:
+        """从缓存获取所有凭证状态"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                cursor = self._db[self._unified_collection].find(
-                    {"type": "credential"},
-                    {"key": 1, "state": 1, "_id": 0}
-                )
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
                 states = {}
-                async for doc in cursor:
-                    if "state" in doc:
-                        states[doc["key"]] = doc["state"]
-                    else:
-                        states[doc["key"]] = self._get_default_state()
+                for filename, cred_data in self._credentials_cache.items():
+                    states[filename] = cred_data.get("state", self._get_default_state())
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                log.debug(f"Retrieved all credential states ({len(states)}) in {operation_time:.3f}s")
+                log.debug(f"Retrieved all credential states from cache ({len(states)}) in {operation_time:.3f}s")
                 return states
                 
             except Exception as e:
@@ -390,23 +364,28 @@ class MongoDBManager:
     # ============ 配置管理 ============
     
     async def set_config(self, key: str, value: Any) -> bool:
-        """在统一集合中设置配置"""
+        """设置配置到配置文档"""
         async with self._semaphore:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
                 now = datetime.now(timezone.utc)
-                doc = {
-                    "type": "config",
-                    "key": key,
-                    "value": value,
-                    "updated_at": now
-                }
                 
-                result = await self._db[self._unified_collection].replace_one(
-                    {"type": "config", "key": key},
-                    doc,
+                # 使用upsert更新配置文档中的特定字段
+                result = await self._db[self._collection_name].update_one(
+                    {"key": self._config_doc_key},
+                    {
+                        "$set": {
+                            f"config.{key}": value,
+                            "updated_at": now
+                        },
+                        "$setOnInsert": {
+                            "key": self._config_doc_key,
+                            "config": {},
+                            "created_at": now
+                        }
+                    },
                     upsert=True
                 )
                 
@@ -427,15 +406,15 @@ class MongoDBManager:
                 return False
     
     async def get_config(self, key: str, default: Any = None) -> Any:
-        """从统一集合获取配置"""
+        """从配置文档获取配置"""
         async with self._semaphore:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                doc = await self._db[self._unified_collection].find_one(
-                    {"type": "config", "key": key},
-                    {"value": 1, "_id": 0}
+                # 从配置文档获取
+                doc = await self._db[self._collection_name].find_one(
+                    {"key": self._config_doc_key}
                 )
                 
                 # 性能监控
@@ -443,9 +422,9 @@ class MongoDBManager:
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc:
+                if doc and "config" in doc and key in doc["config"]:
                     log.debug(f"Retrieved config: {key} in {operation_time:.3f}s")
-                    return doc["value"]
+                    return doc["config"][key]
                 else:
                     return default
                     
@@ -455,28 +434,26 @@ class MongoDBManager:
                 return default
     
     async def get_all_config(self) -> Dict[str, Any]:
-        """从统一集合获取所有配置"""
+        """从配置文档获取所有配置"""
         async with self._semaphore:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                cursor = self._db[self._unified_collection].find(
-                    {"type": "config"},
-                    {"key": 1, "value": 1, "_id": 0}
+                doc = await self._db[self._collection_name].find_one(
+                    {"key": self._config_doc_key}
                 )
-                
-                configs = {}
-                async for doc in cursor:
-                    configs[doc["key"]] = doc["value"]
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                log.debug(f"Retrieved all configs ({len(configs)}) in {operation_time:.3f}s")
-                return configs
+                if doc and "config" in doc:
+                    log.debug(f"Retrieved all configs ({len(doc['config'])}) in {operation_time:.3f}s")
+                    return doc["config"]
+                else:
+                    return {}
                 
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -490,8 +467,9 @@ class MongoDBManager:
             start_time = time.time()
             
             try:
-                result = await self._db[self._unified_collection].delete_one(
-                    {"type": "config", "key": key}
+                result = await self._db[self._collection_name].update_one(
+                    {"key": self._config_doc_key},
+                    {"$unset": {f"config.{key}": ""}}
                 )
                 
                 # 性能监控
@@ -513,38 +491,34 @@ class MongoDBManager:
     # ============ 使用统计管理 ============
     
     async def update_usage_stats(self, filename: str, stats_updates: Dict[str, Any]) -> bool:
-        """在统一集合中更新使用统计"""
-        async with self._semaphore:
+        """更新使用统计（使用缓存模式）"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                now = datetime.now(timezone.utc)
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                # 使用$set更新统计字段
-                update_operations = {}
-                for key, value in stats_updates.items():
-                    update_operations[f"stats.{key}"] = value
+                # 确保凭证存在于缓存中
+                if filename not in self._credentials_cache:
+                    self._credentials_cache[filename] = {
+                        "credential": {},
+                        "state": self._get_default_state(),
+                        "stats": self._get_default_stats()
+                    }
                 
-                update_operations["updated_at"] = now
-                
-                result = await self._db[self._unified_collection].update_one(
-                    {"type": "credential", "key": filename},
-                    {"$set": update_operations},
-                    upsert=False  # 统计数据更新不创建新文档
-                )
+                # 更新统计数据
+                self._credentials_cache[filename]["stats"].update(stats_updates)
+                self._cache_dirty = True
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if result.modified_count > 0:
-                    log.debug(f"Updated usage stats: {filename} in {operation_time:.3f}s")
-                    return True
-                else:
-                    log.warning(f"No changes made to usage stats: {filename}")
-                    return False
+                log.debug(f"Updated usage stats in cache: {filename} in {operation_time:.3f}s")
+                return True
                     
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -558,10 +532,13 @@ class MongoDBManager:
             start_time = time.time()
             
             try:
-                doc = await self._db[self._unified_collection].find_one(
-                    {"type": "credential", "key": filename},
-                    {"stats": 1, "_id": 0}
-                )
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
+                
+                if filename in self._credentials_cache:
+                    doc = {"stats": self._credentials_cache[filename].get("stats", self._get_default_stats())}
+                else:
+                    doc = None
                 
                 # 性能监控
                 self._operation_count += 1
@@ -580,59 +557,147 @@ class MongoDBManager:
                 return self._get_default_stats()
     
     async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
-        """从统一集合获取所有使用统计，带超时机制"""
-        async with self._semaphore:
+        """从缓存获取所有使用统计"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                # 添加超时机制防止卡死
-                async def fetch_stats():
-                    # 优化查询：只获取有统计数据的文档
-                    cursor = self._db[self._unified_collection].find(
-                        {
-                            "type": "credential",
-                            "$or": [
-                                {"stats.gemini_2_5_pro_calls": {"$gt": 0}},
-                                {"stats.total_calls": {"$gt": 0}},
-                                {"stats.next_reset_time": {"$ne": None}}
-                            ]
-                        },
-                        {"key": 1, "stats": 1, "_id": 0}
-                    ).batch_size(50)  # 50批次大小
-                    
-                    stats = {}
-                    doc_count = 0
-                    
-                    async for doc in cursor:
-                        if "stats" in doc and doc["stats"]:
-                            stats[doc["key"]] = doc["stats"]
-                        
-                        doc_count += 1
-                        # 每处理50个文档yield一次，避免长时间阻塞
-                        if doc_count % 50 == 0:
-                            await asyncio.sleep(0.001)  # 让出控制权
-                    
-                    log.debug(f"Processed {doc_count} documents with usage statistics")
-                    return stats
+                # 确保缓存已加载
+                await self._ensure_cache_loaded()
                 
-                # 设置10秒超时
-                import asyncio
-                stats = await asyncio.wait_for(fetch_stats(), timeout=10.0)
+                stats = {}
+                for filename, cred_data in self._credentials_cache.items():
+                    if "stats" in cred_data:
+                        stats[filename] = cred_data["stats"]
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                log.debug(f"Retrieved all usage stats ({len(stats)}) in {operation_time:.3f}s")
+                log.debug(f"Retrieved all usage stats from cache ({len(stats)}) in {operation_time:.3f}s")
                 return stats
                 
-            except asyncio.TimeoutError:
-                operation_time = time.time() - start_time
-                log.error(f"Timeout getting all usage stats after {operation_time:.3f}s")
-                return {}
             except Exception as e:
                 operation_time = time.time() - start_time
                 log.error(f"Error getting all usage stats in {operation_time:.3f}s: {e}")
                 return {}
+    
+    # ==================== 单文档缓存方法（类似TOML文件设计） ====================
+    
+    async def _start_cache_writer(self):
+        """启动缓存写回任务"""
+        if self._write_task and not self._write_task.done():
+            return
+        
+        self._shutdown_event.clear()
+        self._write_task = asyncio.create_task(self._cache_writer_loop())
+        log.debug("MongoDB cache writer started")
+    
+    async def _stop_cache_writer(self):
+        """停止缓存写回任务"""
+        self._shutdown_event.set()
+        
+        if self._write_task and not self._write_task.done():
+            try:
+                await asyncio.wait_for(self._write_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._write_task.cancel()
+                log.warning("Cache writer forcibly cancelled")
+        
+        log.debug("MongoDB cache writer stopped")
+    
+    async def _cache_writer_loop(self):
+        """缓存写回循环"""
+        while not self._shutdown_event.is_set():
+            try:
+                # 等待写入延迟或关闭信号
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=self._write_delay)
+                    break  # 收到关闭信号
+                except asyncio.TimeoutError:
+                    pass  # 超时，检查是否需要写回
+                
+                # 如果缓存脏了，写回数据库
+                async with self._cache_lock:
+                    if self._cache_dirty:
+                        await self._write_cache_to_db()
+                
+            except Exception as e:
+                log.error(f"Error in cache writer loop: {e}")
+                await asyncio.sleep(1)
+    
+    async def _ensure_cache_loaded(self):
+        """确保缓存已从数据库加载"""
+        current_time = time.time()
+        
+        # 检查缓存是否过期
+        if (not self._credentials_cache and 
+            current_time - self._last_cache_time > self._cache_ttl):
+            
+            await self._load_cache_from_db()
+            self._last_cache_time = current_time
+    
+    async def _load_cache_from_db(self):
+        """从数据库加载所有凭证到缓存"""
+        try:
+            start_time = time.time()
+            
+            # 从MongoDB获取凭证文档
+            doc = await self._db[self._collection_name].find_one(
+                {"key": self._credentials_doc_key}
+            )
+            
+            if doc and "credentials" in doc:
+                self._credentials_cache = doc["credentials"].copy()
+                log.debug(f"Loaded {len(self._credentials_cache)} credentials from DB")
+            else:
+                # 如果文档不存在，创建空缓存
+                self._credentials_cache = {}
+                log.debug("Initialized empty credentials cache")
+            
+            operation_time = time.time() - start_time
+            log.debug(f"Cache loaded in {operation_time:.3f}s")
+            
+        except Exception as e:
+            log.error(f"Error loading cache from DB: {e}")
+            self._credentials_cache = {}
+    
+    async def _write_cache_to_db(self):
+        """将缓存写回到数据库单文档"""
+        if not self._cache_dirty:
+            return
+        
+        try:
+            start_time = time.time()
+            now = datetime.now(timezone.utc)
+            
+            # 准备凭证文档数据
+            doc = {
+                "key": self._credentials_doc_key,
+                "credentials": self._credentials_cache,
+                "updated_at": now
+            }
+            
+            # 使用upsert替换整个文档
+            result = await self._db[self._collection_name].replace_one(
+                {"key": self._credentials_doc_key},
+                doc,
+                upsert=True
+            )
+            
+            self._cache_dirty = False
+            operation_time = time.time() - start_time
+            
+            log.debug(f"Cache written to DB in {operation_time:.3f}s (modified: {result.modified_count}, upserted: {bool(result.upserted_id)})")
+            
+        except Exception as e:
+            log.error(f"Error writing cache to DB: {e}")
+    
+    async def _flush_cache(self):
+        """立即刷新缓存到数据库"""
+        async with self._cache_lock:
+            if self._cache_dirty:
+                await self._write_cache_to_db()
+                log.debug("Cache flushed to database")
