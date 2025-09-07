@@ -4,7 +4,7 @@
 """
 import asyncio
 import time
-from typing import Dict, Any, Optional, Callable, Awaitable
+from typing import Dict, Any, Optional
 from collections import deque
 from abc import ABC, abstractmethod
 

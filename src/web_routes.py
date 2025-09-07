@@ -25,7 +25,7 @@ from log import log
 from .auth import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
-    batch_upload_credentials, asyncio_complete_auth_flow, 
+    asyncio_complete_auth_flow, 
     load_credentials_from_env, clear_env_credentials
 )
 from .credential_manager import CredentialManager
