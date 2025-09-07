@@ -101,7 +101,7 @@ class StorageBackend(Protocol):
 
 
 class FileStorageBackend:
-    """基于本地文件的存储后端（优化版：支持队列写入）"""
+    """基于本地文件的存储后端（支持队列写入）"""
     
     def __init__(self):
         self._credentials_dir = None  # 将通过异步初始化设置
@@ -476,7 +476,7 @@ class FileStorageBackend:
     # ============ 凭证管理 ============
     
     async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
-        """存储凭证数据到TOML文件（优化版：使用缓存和队列写入）"""
+        """存储凭证数据到TOML文件（使用缓存和队列写入）"""
         self._ensure_initialized()
         
         async with self._lock:
