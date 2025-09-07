@@ -30,6 +30,8 @@
 
 ---
 
+## 控制面板演示网址：https://gcli2api-9xbf.onrender.com
+
 ## 核心功能
 
 ### 🔄 API 端点和格式支持
