@@ -1,6 +1,5 @@
 """
-统一状态管理器，根据配置自动选择MongoDB或本地文件存储。
-向后兼容现有的state_manager接口。
+统一状态管理器
 """
 import asyncio
 import os
