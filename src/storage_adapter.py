@@ -6,12 +6,9 @@ import asyncio
 import os
 import json
 import time
-from typing import Dict, Any, List, Optional, Protocol, TYPE_CHECKING, Set
+from typing import Dict, Any, List, Optional, Protocol, Set
 from collections import deque
 from dataclasses import dataclass, field
-
-if TYPE_CHECKING:
-    pass
 
 import aiofiles
 import toml
@@ -102,6 +99,32 @@ class StorageBackend(Protocol):
 
 class FileStorageBackend:
     """基于本地文件的存储后端（支持队列写入）"""
+    
+    # 状态字段常量
+    STATE_FIELDS = {
+        "error_codes", "disabled", "last_success", "user_email",
+        "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
+        "daily_limit_gemini_2_5_pro", "daily_limit_total"
+    }
+    
+    # 默认状态数据模板（不包含动态值）
+    _DEFAULT_STATE_TEMPLATE = {
+        "error_codes": [],
+        "disabled": False,
+        "user_email": None,
+        "gemini_2_5_pro_calls": 0,
+        "total_calls": 0,
+        "next_reset_time": None,
+        "daily_limit_gemini_2_5_pro": 100,
+        "daily_limit_total": 1000
+    }
+    
+    @classmethod
+    def get_default_state(cls) -> Dict[str, Any]:
+        """获取默认状态数据（包含当前时间戳）"""
+        state = cls._DEFAULT_STATE_TEMPLATE.copy()
+        state["last_success"] = time.time()
+        return state
     
     def __init__(self):
         self._credentials_dir = None  # 将通过异步初始化设置
@@ -210,18 +233,7 @@ class FileStorageBackend:
                     section_data = credential_data.copy()
                     
                     # 首先添加默认状态数据
-                    default_state = {
-                        "error_codes": [],
-                        "disabled": False,
-                        "last_success": time.time(),
-                        "user_email": None,
-                        "gemini_2_5_pro_calls": 0,
-                        "total_calls": 0,
-                        "next_reset_time": None,
-                        "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1000
-                    }
-                    section_data.update(default_state)
+                    section_data.update(self.get_default_state())
                     
                     # 如果旧状态文件中有该凭证的状态数据，则使用旧状态数据覆盖默认值
                     if filename in old_state_data and isinstance(old_state_data[filename], dict):
@@ -491,21 +503,8 @@ class FileStorageBackend:
                 # 创建新的section数据：凭证数据 + 状态数据
                 section_data = credential_data.copy()
                 
-                # 保留现有的状态数据，或使用默认值
-                default_state = {
-                    "error_codes": [],
-                    "disabled": False,
-                    "last_success": time.time(),
-                    "user_email": None,
-                    "gemini_2_5_pro_calls": 0,
-                    "total_calls": 0,
-                    "next_reset_time": None,
-                    "daily_limit_gemini_2_5_pro": 100,
-                    "daily_limit_total": 1000
-                }
-                
                 # 合并：先用默认状态，再用现有状态，最后加入凭证数据
-                final_data = default_state.copy()
+                final_data = self.get_default_state()
                 final_data.update(existing_state)
                 final_data.update(credential_data)  # 凭证数据覆盖状态数据中的同名字段
                 
@@ -534,13 +533,7 @@ class FileStorageBackend:
             section_data = toml_data[filename]
             
             # 提取凭证数据（排除状态字段）
-            state_fields = {
-                "error_codes", "disabled", "last_success", "user_email",
-                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
-                "daily_limit_gemini_2_5_pro", "daily_limit_total"
-            }
-            
-            credential_data = {k: v for k, v in section_data.items() if k not in state_fields}
+            credential_data = {k: v for k, v in section_data.items() if k not in self.STATE_FIELDS}
             return credential_data
             
         except Exception as e:
@@ -599,17 +592,7 @@ class FileStorageBackend:
                 
                 if filename not in toml_data:
                     # 如果凭证不存在，创建一个空的section（包含基本状态数据）
-                    toml_data[filename] = {
-                        "error_codes": [],
-                        "disabled": False,
-                        "last_success": time.time(),
-                        "user_email": None,
-                        "gemini_2_5_pro_calls": 0,
-                        "total_calls": 0,
-                        "next_reset_time": None,
-                        "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1000
-                    }
+                    toml_data[filename] = self.get_default_state()
                 
                 # 更新状态数据
                 toml_data[filename].update(state_updates)
@@ -631,46 +614,29 @@ class FileStorageBackend:
             toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             if filename not in toml_data:
-                return {
-                    "error_codes": [],
-                    "disabled": False,
-                    "last_success": time.time(),
-                    "user_email": None,
-                }
+                # 返回基本的状态字段
+                default_state = self.get_default_state()
+                return {k: v for k, v in default_state.items() if k in {"error_codes", "disabled", "last_success", "user_email"}}
             
             section_data = toml_data[filename]
             
             # 提取状态字段
-            state_fields = {
-                "error_codes", "disabled", "last_success", "user_email",
-                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
-                "daily_limit_gemini_2_5_pro", "daily_limit_total"
-            }
-            
-            state_data = {k: v for k, v in section_data.items() if k in state_fields}
+            state_data = {k: v for k, v in section_data.items() if k in self.STATE_FIELDS}
             
             # 确保必要字段存在
-            defaults = {
-                "error_codes": [],
-                "disabled": False,
-                "last_success": time.time(),
-                "user_email": None,
-            }
-            
-            for key, default_value in defaults.items():
-                if key not in state_data:
-                    state_data[key] = default_value
+            basic_fields = {"error_codes", "disabled", "last_success", "user_email"}
+            default_state = self.get_default_state()
+            for key in basic_fields:
+                if key not in state_data and key in default_state:
+                    state_data[key] = default_state[key]
             
             return state_data
             
         except Exception as e:
             log.error(f"Error getting credential state {filename}: {e}")
-            return {
-                "error_codes": [],
-                "disabled": False,
-                "last_success": time.time(),
-                "user_email": None,
-            }
+            # 返回基本状态字段的默认值
+            default_state = self.get_default_state()
+            return {k: v for k, v in default_state.items() if k in {"error_codes", "disabled", "last_success", "user_email"}}
     
     async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
@@ -680,15 +646,9 @@ class FileStorageBackend:
             toml_data = await self._load_toml_file_with_cache(self._state_file)
             
             # 提取状态字段
-            state_fields = {
-                "error_codes", "disabled", "last_success", "user_email",
-                "gemini_2_5_pro_calls", "total_calls", "next_reset_time",
-                "daily_limit_gemini_2_5_pro", "daily_limit_total"
-            }
-            
             states = {}
             for filename, section_data in toml_data.items():
-                state_data = {k: v for k, v in section_data.items() if k in state_fields}
+                state_data = {k: v for k, v in section_data.items() if k in self.STATE_FIELDS}
                 states[filename] = state_data
             
             return states

@@ -1,6 +1,6 @@
 """
-MongoDB数据库管理器，使用单集合设计。
-将凭证、状态、配置、统计数据统一存储在一个集合中。
+MongoDB数据库管理器，使用单文档设计。
+所有凭证数据存储在一个文档中，配置数据存储在另一个文档中，类似TOML文件结构。
 """
 import asyncio
 import os
@@ -8,19 +8,10 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from collections import deque
-from dataclasses import dataclass, field
 
 import motor.motor_asyncio
 from log import log
 
-
-@dataclass
-class WriteOperation:
-    """写入操作数据结构"""
-    key: str
-    data: Dict[str, Any]
-    timestamp: float = field(default_factory=time.time)
-    operation_type: str = "update"  # update, delete
 
 class MongoDBManager:
     """MongoDB数据库管理器"""
@@ -47,11 +38,14 @@ class MongoDBManager:
         
         # 单文档读写缓存（类似文件模式但更简单）
         self._credentials_cache: Dict[str, Any] = {}  # 完整的凭证数据缓存
+        self._config_cache: Dict[str, Any] = {}  # 配置数据缓存
         self._cache_dirty = False  # 标记缓存是否需要写回
+        self._config_dirty = False  # 标记配置缓存是否需要写回
         self._cache_lock = asyncio.Lock()
         self._write_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
         self._last_cache_time = 0  # 上次缓存更新时间
+        self._last_config_cache_time = 0  # 上次配置缓存更新时间
         
         # 文档key定义
         self._credentials_doc_key = "all_credentials"
@@ -364,41 +358,26 @@ class MongoDBManager:
     # ============ 配置管理 ============
     
     async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置到配置文档"""
-        async with self._semaphore:
+        """设置配置到缓存（延迟写回MongoDB）"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                now = datetime.now(timezone.utc)
+                # 确保配置缓存已加载
+                await self._ensure_config_cache_loaded()
                 
-                # 使用upsert更新配置文档中的特定字段
-                result = await self._db[self._collection_name].update_one(
-                    {"key": self._config_doc_key},
-                    {
-                        "$set": {
-                            f"config.{key}": value,
-                            "updated_at": now
-                        },
-                        "$setOnInsert": {
-                            "key": self._config_doc_key,
-                            "config": {},
-                            "created_at": now
-                        }
-                    },
-                    upsert=True
-                )
+                # 更新配置缓存
+                self._config_cache[key] = value
+                self._config_dirty = True
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if result.upserted_id or result.modified_count > 0:
-                    log.debug(f"Set config: {key} in {operation_time:.3f}s")
-                    return True
-                else:
-                    return False
+                log.debug(f"Set config to cache: {key} in {operation_time:.3f}s")
+                return True
                     
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -406,25 +385,23 @@ class MongoDBManager:
                 return False
     
     async def get_config(self, key: str, default: Any = None) -> Any:
-        """从配置文档获取配置"""
-        async with self._semaphore:
+        """从配置缓存获取配置"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                # 从配置文档获取
-                doc = await self._db[self._collection_name].find_one(
-                    {"key": self._config_doc_key}
-                )
+                # 确保配置缓存已加载
+                await self._ensure_config_cache_loaded()
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc and "config" in doc and key in doc["config"]:
-                    log.debug(f"Retrieved config: {key} in {operation_time:.3f}s")
-                    return doc["config"][key]
+                if key in self._config_cache:
+                    log.debug(f"Retrieved config from cache: {key} in {operation_time:.3f}s")
+                    return self._config_cache[key]
                 else:
                     return default
                     
@@ -434,26 +411,22 @@ class MongoDBManager:
                 return default
     
     async def get_all_config(self) -> Dict[str, Any]:
-        """从配置文档获取所有配置"""
-        async with self._semaphore:
+        """从配置缓存获取所有配置"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                doc = await self._db[self._collection_name].find_one(
-                    {"key": self._config_doc_key}
-                )
+                # 确保配置缓存已加载
+                await self._ensure_config_cache_loaded()
                 
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc and "config" in doc:
-                    log.debug(f"Retrieved all configs ({len(doc['config'])}) in {operation_time:.3f}s")
-                    return doc["config"]
-                else:
-                    return {}
+                log.debug(f"Retrieved all configs from cache ({len(self._config_cache)}) in {operation_time:.3f}s")
+                return self._config_cache.copy()
                 
             except Exception as e:
                 operation_time = time.time() - start_time
@@ -461,26 +434,28 @@ class MongoDBManager:
                 return {}
     
     async def delete_config(self, key: str) -> bool:
-        """从统一集合删除配置"""
-        async with self._semaphore:
+        """从配置缓存删除配置"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
             try:
-                result = await self._db[self._collection_name].update_one(
-                    {"key": self._config_doc_key},
-                    {"$unset": {f"config.{key}": ""}}
-                )
+                # 确保配置缓存已加载
+                await self._ensure_config_cache_loaded()
                 
-                # 性能监控
-                self._operation_count += 1
-                operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
-                
-                if result.deleted_count > 0:
-                    log.debug(f"Deleted config: {key} in {operation_time:.3f}s")
+                if key in self._config_cache:
+                    del self._config_cache[key]
+                    self._config_dirty = True
+                    
+                    # 性能监控
+                    self._operation_count += 1
+                    operation_time = time.time() - start_time
+                    self._operation_times.append(operation_time)
+                    
+                    log.debug(f"Deleted config from cache: {key} in {operation_time:.3f}s")
                     return True
                 else:
+                    log.warning(f"Config not found for deletion: {key}")
                     return False
                     
             except Exception as e:
@@ -526,8 +501,8 @@ class MongoDBManager:
                 return False
     
     async def get_usage_stats(self, filename: str) -> Dict[str, Any]:
-        """从统一集合获取使用统计"""
-        async with self._semaphore:
+        """从缓存获取使用统计"""
+        async with self._cache_lock:
             self._ensure_initialized()
             start_time = time.time()
             
@@ -535,19 +510,14 @@ class MongoDBManager:
                 # 确保缓存已加载
                 await self._ensure_cache_loaded()
                 
-                if filename in self._credentials_cache:
-                    doc = {"stats": self._credentials_cache[filename].get("stats", self._get_default_stats())}
-                else:
-                    doc = None
-                
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
                 self._operation_times.append(operation_time)
                 
-                if doc and "stats" in doc:
-                    log.debug(f"Retrieved usage stats: {filename} in {operation_time:.3f}s")
-                    return doc["stats"]
+                if filename in self._credentials_cache:
+                    log.debug(f"Retrieved usage stats from cache: {filename} in {operation_time:.3f}s")
+                    return self._credentials_cache[filename].get("stats", self._get_default_stats())
                 else:
                     return self._get_default_stats()
                     
@@ -623,6 +593,9 @@ class MongoDBManager:
                 async with self._cache_lock:
                     if self._cache_dirty:
                         await self._write_cache_to_db()
+                    
+                    if self._config_dirty:
+                        await self._write_config_cache_to_db()
                 
             except Exception as e:
                 log.error(f"Error in cache writer loop: {e}")
@@ -632,8 +605,9 @@ class MongoDBManager:
         """确保缓存已从数据库加载"""
         current_time = time.time()
         
-        # 检查缓存是否过期
-        if (not self._credentials_cache and 
+        # 检查缓存是否需要加载（首次加载或过期）
+        # 使用_last_cache_time == 0来判断是否首次加载，而不是检查空字典
+        if (self._last_cache_time == 0 or 
             current_time - self._last_cache_time > self._cache_ttl):
             
             await self._load_cache_from_db()
@@ -701,3 +675,77 @@ class MongoDBManager:
             if self._cache_dirty:
                 await self._write_cache_to_db()
                 log.debug("Cache flushed to database")
+            
+            if self._config_dirty:
+                await self._write_config_cache_to_db()
+                log.debug("Config cache flushed to database")
+    
+    # ==================== 配置缓存方法 ====================
+    
+    async def _ensure_config_cache_loaded(self):
+        """确保配置缓存已从数据库加载"""
+        current_time = time.time()
+        
+        # 检查缓存是否需要加载（首次加载或过期）
+        # 使用_last_config_cache_time == 0来判断是否首次加载，而不是检查空字典
+        if (self._last_config_cache_time == 0 or 
+            current_time - self._last_config_cache_time > self._cache_ttl):
+            
+            await self._load_config_cache_from_db()
+            self._last_config_cache_time = current_time
+    
+    async def _load_config_cache_from_db(self):
+        """从数据库加载配置到缓存"""
+        try:
+            start_time = time.time()
+            
+            # 从MongoDB获取配置文档
+            doc = await self._db[self._collection_name].find_one(
+                {"key": self._config_doc_key}
+            )
+            
+            if doc and "config" in doc:
+                self._config_cache = doc["config"].copy()
+                log.debug(f"Loaded {len(self._config_cache)} configs from DB")
+            else:
+                # 如果文档不存在，创建空缓存
+                self._config_cache = {}
+                log.debug("Initialized empty config cache")
+            
+            operation_time = time.time() - start_time
+            log.debug(f"Config cache loaded in {operation_time:.3f}s")
+            
+        except Exception as e:
+            log.error(f"Error loading config cache from DB: {e}")
+            self._config_cache = {}
+    
+    async def _write_config_cache_to_db(self):
+        """将配置缓存写回到数据库"""
+        if not self._config_dirty:
+            return
+        
+        try:
+            start_time = time.time()
+            now = datetime.now(timezone.utc)
+            
+            # 准备配置文档数据
+            doc = {
+                "key": self._config_doc_key,
+                "config": self._config_cache,
+                "updated_at": now
+            }
+            
+            # 使用upsert替换整个文档
+            result = await self._db[self._collection_name].replace_one(
+                {"key": self._config_doc_key},
+                doc,
+                upsert=True
+            )
+            
+            self._config_dirty = False
+            operation_time = time.time() - start_time
+            
+            log.debug(f"Config cache written to DB in {operation_time:.3f}s (modified: {result.modified_count}, upserted: {bool(result.upserted_id)})")
+            
+        except Exception as e:
+            log.error(f"Error writing config cache to DB: {e}")
