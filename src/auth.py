@@ -477,88 +477,88 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
 async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
     try:
-        log.info(f"[ASYNC] asyncio_complete_auth_flow开始执行: project_id={project_id}, user_session={user_session}")
+        log.info(f"asyncio_complete_auth_flow开始执行: project_id={project_id}, user_session={user_session}")
         
         # 查找对应的认证流程
         state = None
         flow_data = None
         
-        log.debug(f"[ASYNC] 当前所有auth_flows: {list(auth_flows.keys())}")
+        log.debug(f"当前所有auth_flows: {list(auth_flows.keys())}")
         
         # 如果指定了project_id，先尝试匹配指定的项目
         if project_id:
-            log.info(f"[ASYNC] 尝试匹配指定的项目ID: {project_id}")
+            log.info(f"尝试匹配指定的项目ID: {project_id}")
             for s, data in auth_flows.items():
                 if data['project_id'] == project_id:
                     # 如果指定了用户会话，优先匹配相同会话的流程
                     if user_session and data.get('user_session') == user_session:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配的用户会话: {s}")
+                        log.info(f"找到匹配的用户会话: {s}")
                         break
                     # 如果没有指定会话，或没找到匹配会话的流程，使用第一个匹配项目ID的
                     elif not state:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配的项目ID: {s}")
+                        log.info(f"找到匹配的项目ID: {s}")
         
         # 如果没有指定项目ID或没找到匹配的，查找需要自动检测项目ID的流程
         if not state:
-            log.info(f"[ASYNC] 没有找到指定项目的流程，查找自动检测流程")
+            log.info(f"没有找到指定项目的流程，查找自动检测流程")
             for s, data in auth_flows.items():
-                log.debug(f"[ASYNC] 检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}")
+                log.debug(f"检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}")
                 if data.get('auto_project_detection', False):
                     # 如果指定了用户会话，优先匹配相同会话的流程
                     if user_session and data.get('user_session') == user_session:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配用户会话的自动检测流程: {s}")
+                        log.info(f"找到匹配用户会话的自动检测流程: {s}")
                         break
                     # 使用第一个找到的需要自动检测的流程
                     elif not state:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到自动检测流程: {s}")
+                        log.info(f"找到自动检测流程: {s}")
         
         if not state or not flow_data:
-            log.error(f"[ASYNC] 未找到认证流程: state={state}, flow_data存在={bool(flow_data)}")
-            log.debug(f"[ASYNC] 当前所有flow_data: {list(auth_flows.keys())}")
+            log.error(f"未找到认证流程: state={state}, flow_data存在={bool(flow_data)}")
+            log.debug(f"当前所有flow_data: {list(auth_flows.keys())}")
             return {
                 'success': False,
                 'error': '未找到对应的认证流程，请先点击获取认证链接'
             }
         
-        log.info(f"[ASYNC] 找到认证流程: state={state}")
-        log.info(f"[ASYNC] flow_data内容: project_id={flow_data.get('project_id')}, auto_project_detection={flow_data.get('auto_project_detection')}")
-        log.info(f"[ASYNC] 传入的project_id参数: {project_id}")
+        log.info(f"找到认证流程: state={state}")
+        log.info(f"flow_data内容: project_id={flow_data.get('project_id')}, auto_project_detection={flow_data.get('auto_project_detection')}")
+        log.info(f"传入的project_id参数: {project_id}")
         
         # 如果需要自动检测项目ID且没有提供项目ID
-        log.info(f"[ASYNC] 检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
+        log.info(f"检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
         if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("[ASYNC] 跳过自动检测项目ID，进入等待阶段")
+            log.info("跳过自动检测项目ID，进入等待阶段")
         elif not project_id:
-            log.info("[ASYNC] 进入project_id检查分支")
+            log.info("进入project_id检查分支")
             project_id = flow_data.get('project_id')
             if not project_id:
-                log.error("[ASYNC] 缺少项目ID，返回错误")
+                log.error("缺少项目ID，返回错误")
                 return {
                     'success': False,
                     'error': '缺少项目ID，请指定项目ID',
                     'requires_manual_project_id': True
                 }
         else:
-            log.info(f"[ASYNC] 使用提供的项目ID: {project_id}")
+            log.info(f"使用提供的项目ID: {project_id}")
         
         # 检查是否已经有授权码
-        log.info(f"[ASYNC] 开始检查OAuth授权码...")
+        log.info(f"开始检查OAuth授权码...")
         max_wait_time = 60  # 最多等待60秒
         wait_interval = 1   # 每秒检查一次
         waited = 0
         
         while waited < max_wait_time:
-            log.debug(f"[ASYNC] 等待OAuth授权码... ({waited}/{max_wait_time}秒)")
+            log.debug(f"等待OAuth授权码... ({waited}/{max_wait_time}秒)")
             if flow_data.get('code'):
-                log.info(f"[ASYNC] 检测到OAuth授权码，开始处理凭证 (等待时间: {waited}秒)")
+                log.info(f"检测到OAuth授权码，开始处理凭证 (等待时间: {waited}秒)")
                 break
             
             # 异步等待
@@ -568,10 +568,10 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             # 刷新flow_data引用，因为可能被回调更新了
             if state in auth_flows:
                 flow_data = auth_flows[state]
-                log.debug(f"[ASYNC] 刷新flow_data: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}")
+                log.debug(f"刷新flow_data: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}")
         
         if not flow_data.get('code'):
-            log.error(f"[ASYNC] 等待OAuth回调超时，等待了{waited}秒")
+            log.error(f"等待OAuth回调超时，等待了{waited}秒")
             return {
                 'success': False,
                 'error': '等待OAuth回调超时，请确保完成了浏览器中的认证并看到成功页面'
@@ -580,7 +580,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         flow = flow_data['flow']
         auth_code = flow_data['code']
         
-        log.info(f"[ASYNC] 开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
+        log.info(f"开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
         
         # 使用认证代码获取凭证
         import oauthlib.oauth2.rfc6749.parameters
@@ -595,11 +595,11 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            log.info(f"[ASYNC] 调用flow.exchange_code...")
+            log.info(f"调用flow.exchange_code...")
             credentials = await flow.exchange_code(auth_code)
-            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
+            log.info(f"成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
             
-            log.info(f"[ASYNC] 检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
+            log.info(f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
             
             # 如果需要自动检测项目ID且没有提供项目ID
             if flow_data.get('auto_project_detection', False) and not project_id:
