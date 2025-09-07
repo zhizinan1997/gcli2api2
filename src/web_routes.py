@@ -429,7 +429,7 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
         storage_adapter = await get_storage_adapter()
         
         # 分批处理大量文件以提高稳定性
-        batch_size = 100  # 每批处理100个文件
+        batch_size = 1000  # 每批处理1000个文件
         all_results = []
         total_success = 0
         
@@ -472,7 +472,7 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
                         except Exception as e:
                             log.warning(f"Failed to create default state for {filename}: {e}")
                         
-                        log.info(f"成功上传凭证文件: {filename}")
+                        log.debug(f"成功上传凭证文件: {filename}")
                         return {
                             "filename": filename,
                             "status": "success",
