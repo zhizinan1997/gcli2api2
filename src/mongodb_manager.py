@@ -29,9 +29,6 @@ class MongoDBManager:
         # 单文档设计 - 所有凭证存在一个文档中（类似TOML文件）
         self._collection_name = "credentials_data"
         
-        # 并发控制
-        self._semaphore = asyncio.Semaphore(100)
-        
         # 性能监控
         self._operation_count = 0
         self._operation_times = deque(maxlen=5000)
