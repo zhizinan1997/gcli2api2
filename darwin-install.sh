@@ -1,11 +1,19 @@
-#!/bin/zsh
-# macOS (Apple Silicon) 安装脚本
+#!/bin/bash
+# macOS 安装脚本 (支持 Intel 和 Apple Silicon)
 
 # 确保 Homebrew 已安装
 if ! command -v brew &> /dev/null; then
     echo "未检测到 Homebrew，开始安装..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+    
+    # 检测 Homebrew 安装路径并设置环境变量
+    if [[ -f "/opt/homebrew/bin/brew" ]]; then
+        # Apple Silicon Mac
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f "/usr/local/bin/brew" ]]; then
+        # Intel Mac
+        eval "$(/usr/local/bin/brew shellenv)"
+    fi
 fi
 
 # 更新 brew 并安装 git
@@ -41,12 +49,6 @@ if [ -f ".venv/bin/activate" ]; then
 else
     echo "❌ 未找到虚拟环境，请检查 uv 是否安装成功"
     exit 1
-fi
-
-# 如果存在 requirements.txt，则安装
-if [ -f "requirements.txt" ]; then
-    echo "检测到 requirements.txt，开始安装依赖..."
-    pip install -r requirements.txt
 fi
 
 # 启动项目
